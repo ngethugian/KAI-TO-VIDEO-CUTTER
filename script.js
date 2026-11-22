@@ -1,9 +1,8 @@
-/* KAI TỒ VIDEO CUTTER — Logic ứng dụng chính */
+/* KAI TỒ VIDEO CUTTER — Logic ứng dụng chính (đã tích hợp cầu nối Facebook) */
 
 (() => {
   "use strict";
 
-  // Trạng thái ứng dụng
   const state = {
     sourceFile: null,
     sourceUrl: null,
@@ -20,7 +19,6 @@
     modalSegmentId: null
   };
 
-  // Tham chiếu DOM
   const el = {
     ffmpegStatusBadge: document.getElementById("ffmpegStatusBadge"),
     ffmpegStatusText: document.getElementById("ffmpegStatusText"),
@@ -168,6 +166,10 @@
     el.logContainer.scrollTop = el.logContainer.scrollHeight;
   }
 
+  function notifySegmentsUpdated() {
+    window.dispatchEvent(new CustomEvent("kaito:segments-updated"));
+  }
+
   /* ===================== QUẢN LÝ WEB WORKER FFMPEG ===================== */
 
   function ensureWorker() {
@@ -292,6 +294,7 @@
       el.totalEpisodesCount.textContent = "0 tập";
       renderEpisodeList();
       updateActionButtons();
+      notifySegmentsUpdated();
       return;
     }
 
@@ -314,7 +317,6 @@
 
     while (cursor < state.duration) {
       const remaining = state.duration - cursor;
-      // Tránh sinh tập rỗng do sai số dấu phẩy động (< 0.15 giây ở cuối cùng)
       if (remaining < 0.15 && segments.length > 0) {
         segments[segments.length - 1].endSec = state.duration;
         segments[segments.length - 1].expectedDuration = state.duration - segments[segments.length - 1].startSec;
@@ -337,7 +339,7 @@
         expectedDuration: endSec - cursor,
         actualDuration: null,
         keyframeDriftSec: 0,
-        status: "idle", // idle | processing | done | error
+        status: "idle",
         errorMessage: "",
         blob: null,
         blobUrl: null,
@@ -352,6 +354,7 @@
     el.totalEpisodesCount.textContent = `${segments.length} tập`;
     renderEpisodeList();
     updateActionButtons();
+    notifySegmentsUpdated();
   }
 
   function updateEpisodeNamesOnly(forceReset = false) {
@@ -365,6 +368,7 @@
       }
     });
     renderEpisodeList();
+    notifySegmentsUpdated();
   }
 
   function updateRamDisplay() {
@@ -401,7 +405,7 @@
       return `<span class="badge badge-success">Hoàn thành</span>`;
     }
     if (seg.status === "error") {
-      return `<span class="badge badge-error" title="${seg.errorMessage}">Lỗi</span>`;
+      return `<span class="badge badge-error" title="${escapeHtmlAttr(seg.errorMessage)}">Lỗi</span>`;
     }
     return `<span class="badge badge-idle">Chờ xử lý</span>`;
   }
@@ -559,17 +563,15 @@
     el.fileDurationDisplay.textContent = "Đang đọc thời lượng...";
     el.fileResolutionDisplay.textContent = "Đang kiểm tra...";
 
-    // Gợi ý tiêu đề tự động theo tên file nếu ô tiêu đề đang trống
     if (!el.videoTitleInput.value.trim()) {
       el.videoTitleInput.value = sanitizeFilename(stripExtension(file.name)).toUpperCase();
     }
 
     el.sourceVideoPlayer.src = state.sourceUrl;
 
-    // Cảnh báo dung lượng nếu > 1.8 GB
     if (file.size > 1.8 * 1024 * 1024 * 1024) {
       showAlert(
-        "Video có dung lượng lớn (> 1.8 GB). Hệ thống dùng WORKERFS để giảm tối đa RAM, nhưng hãy đóng các tab không cần thiết và giữ chế độ Stream Copy (-c copy) để xử lý ổn định nhất.",
+        "Video có dung lượng lớn (trên 1.8 GB). Hệ thống dùng WORKERFS để giảm tối đa RAM, hãy đóng bớt tab khác và giữ chế độ Stream Copy (-c copy) để xử lý ổn định nhất.",
         "warning"
       );
     }
@@ -583,7 +585,6 @@
       recalculateSegments(true);
       showToast(`Đã nạp video (${formatDuration(state.duration)}) — dự kiến ${state.segments.length} tập.`, "success");
     } catch (_) {
-      // Fallback sang FFmpeg.wasm để đọc thời lượng cho MKV / HEVC / AVI
       el.previewFallbackNote.classList.remove("hidden");
       el.fileDurationDisplay.textContent = "Đang phân tích bằng FFmpeg.wasm...";
       setFFmpegBadge("loading", "Đang nạp FFmpeg để đọc video...");
@@ -627,7 +628,6 @@
     showAlert("");
     revokeSegmentBlobs();
 
-    // Reset trạng thái từng tập
     state.segments.forEach((seg) => {
       seg.status = "idle";
       seg.errorMessage = "";
@@ -646,12 +646,12 @@
 
     renderEpisodeList();
     updateActionButtons();
+    notifySegmentsUpdated();
 
     let keyframeDriftCount = 0;
     let successCount = 0;
 
     try {
-      // Mount file nếu chưa mount hoặc vừa đổi file mới
       if (state.workerMountedFile !== state.sourceFile) {
         setFFmpegBadge("loading", "Đang nạp lõi & liên kết video...");
         const mountRes = await callWorker("mount", {
@@ -698,7 +698,6 @@
           seg.outputSize = result.size;
           seg.status = "done";
 
-          // Kiểm tra thời lượng thực tế để phát hiện lệch keyframe (Stream Copy)
           try {
             const cutMeta = await readBrowserVideoMetadata(blobUrl);
             seg.actualDuration = cutMeta.duration;
@@ -715,6 +714,7 @@
 
           successCount++;
           updateRamDisplay();
+          notifySegmentsUpdated();
         } catch (segErr) {
           if (state.isCancelling) break;
           seg.status = "error";
@@ -734,7 +734,7 @@
         showToast("Đã hủy cắt video và giải phóng Worker.", "warn");
       } else if (successCount === state.segments.length) {
         el.progressStatusText.textContent = `Hoàn thành toàn bộ ${successCount}/${state.segments.length} tập!`;
-        el.currentEpText.textContent = "Sẵn sàng xem trước hoặc tải file MP4 / ZIP.";
+        el.currentEpText.textContent = "Sẵn sàng xem trước, tải MP4/ZIP hoặc đăng lên Facebook.";
         showToast(`Đã cắt xong toàn bộ ${successCount} tập!`, "success");
 
         if (keyframeDriftCount > 0) {
@@ -763,6 +763,7 @@
       state.isCancelling = false;
       renderEpisodeList();
       updateActionButtons();
+      notifySegmentsUpdated();
     }
   }
 
@@ -784,6 +785,7 @@
     el.currentEpText.textContent = "—";
     renderEpisodeList();
     updateActionButtons();
+    notifySegmentsUpdated();
     showToast("Đã hủy cắt video ngay lập tức.", "warn");
   }
 
@@ -836,7 +838,6 @@
         zip.file(finalName, seg.blob);
       }
 
-      // Dùng STORE (không nén lại MP4) để đóng gói cực nhanh và ít tốn RAM
       const zipBlob = await zip.generateAsync(
         { type: "blob", compression: "STORE" },
         (meta) => {
@@ -913,13 +914,13 @@
     renderEpisodeList();
     updateActionButtons();
     updateRamDisplay();
+    notifySegmentsUpdated();
     showToast("Đã xóa video và giải phóng toàn bộ bộ nhớ tạm.", "info");
   }
 
   /* ===================== GẮN SỰ KIỆN ===================== */
 
   function bindEvents() {
-    // Chọn file
     el.selectFileBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       el.videoInput.click();
@@ -957,7 +958,6 @@
     el.changeVideoBtn.addEventListener("click", () => el.videoInput.click());
     el.clearMemoryBtn.addEventListener("click", clearAllAndFreeMemory);
 
-    // Thời lượng mỗi tập & Preset
     const onChunkChange = () => {
       el.presetBtns.forEach((b) => {
         const isMatch = Number(b.dataset.min) === Number(el.chunkMinutesInput.value) && Number(el.chunkSecondsInput.value) === 0;
@@ -977,7 +977,6 @@
       });
     });
 
-    // Chế độ cắt
     const onModeChange = () => {
       const isReencode = el.modeReencode.checked;
       el.reencodeOptions.classList.toggle("hidden", !isReencode);
@@ -986,7 +985,6 @@
     el.modeCopy.addEventListener("change", onModeChange);
     el.modeReencode.addEventListener("change", onModeChange);
 
-    // Đặt tên tập
     [el.videoTitleInput, el.channelNameInput, el.episodePrefixInput, el.startEpisodeInput].forEach((input) => {
       input.addEventListener("input", () => updateEpisodeNamesOnly(false));
     });
@@ -997,7 +995,6 @@
       showToast("Đã cập nhật lại tên tự động cho tất cả các tập.", "info");
     });
 
-    // Sửa tên từng tập & nút Xem trước / Tải về trong danh sách
     el.episodeListContainer.addEventListener("input", (e) => {
       const input = e.target.closest(".ep-name-input");
       if (!input) return;
@@ -1005,6 +1002,7 @@
       if (seg) {
         seg.title = input.value;
         seg.customEdited = true;
+        notifySegmentsUpdated();
       }
     });
 
@@ -1020,18 +1018,15 @@
       }
     });
 
-    // Nút điều khiển chính
     el.startCutBtn.addEventListener("click", startCutting);
     el.cancelCutBtn.addEventListener("click", cancelCutting);
     el.downloadAllZipBtn.addEventListener("click", downloadAllAsZip);
 
-    // Log FFmpeg
     el.toggleLogBtn.addEventListener("click", () => {
       const isHidden = el.logContainer.classList.toggle("hidden");
       el.toggleLogBtn.textContent = isHidden ? "Hiện nhật ký FFmpeg" : "Ẩn nhật ký FFmpeg";
     });
 
-    // Modal xem trước
     el.closeModalBtn.addEventListener("click", closePreviewModal);
     el.modalBackdrop.addEventListener("click", closePreviewModal);
     el.modalDownloadBtn.addEventListener("click", () => {
@@ -1044,7 +1039,19 @@
     });
   }
 
-  // Khởi chạy
+  // Cầu nối xuất dữ liệu sang module Facebook (fb-publisher.js)
+  window.KaiToCutter = {
+    getSegments: () => state.segments,
+    getVideoTitle: () => el.videoTitleInput.value.trim(),
+    getChannelName: () => el.channelNameInput.value.trim(),
+    getEpisodePrefix: () => el.episodePrefixInput.value.trim() || "TẬP",
+    getSourceFileName: () => state.sourceFile?.name || "",
+    formatDuration,
+    formatBytes,
+    showToast,
+    showAlert
+  };
+
   bindEvents();
   updateNamingSample();
   updateActionButtons();
