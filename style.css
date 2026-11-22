@@ -918,6 +918,64 @@ select:focus {
   padding-top: 4px;
 }
 
+/* Thumbnail Picker & Preview */
+.fb-thumb-box {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+  flex-wrap: wrap;
+}
+
+.fb-thumb-preview-wrap {
+  width: 140px;
+  height: 80px;
+  border-radius: 6px;
+  background: #05080f;
+  border: 1px dashed #334155;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.fb-thumb-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.fb-thumb-placeholder {
+  font-size: 0.74rem;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 6px;
+}
+
+.fb-thumb-controls {
+  flex: 1;
+  min-width: 180px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fb-thumb-note {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+.fb-thumb-btns {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .fb-queue-header {
   display: flex;
   align-items: center;
@@ -948,7 +1006,7 @@ select:focus {
   border-radius: var(--radius-md);
   padding: 14px 16px;
   display: grid;
-  grid-template-columns: 1.5fr 1fr auto;
+  grid-template-columns: 128px 1.4fr 1fr auto;
   gap: 14px;
   align-items: start;
 }
@@ -963,6 +1021,38 @@ select:focus {
 
 .fb-queue-card.fb-failed {
   border-color: rgba(239, 68, 68, 0.5);
+}
+
+.fb-queue-thumb {
+  width: 128px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.fb-queue-thumb-frame {
+  width: 128px;
+  height: 74px;
+  border-radius: 7px;
+  background: #05080f;
+  border: 1px solid var(--border);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.fb-queue-thumb-frame img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.fb-queue-thumb-tag {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  text-align: center;
 }
 
 .fb-post-title {
@@ -1007,6 +1097,8 @@ select:focus {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  max-height: 74vh;
+  overflow-y: auto;
 }
 
 /* Guide */
@@ -1166,6 +1258,13 @@ select:focus {
   .config-grid,
   .fb-queue-card {
     grid-template-columns: 1fr;
+  }
+
+  .fb-queue-thumb {
+    width: 100%;
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
   }
 
   .guide-grid {
