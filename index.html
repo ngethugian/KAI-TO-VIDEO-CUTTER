@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KAI TỒ VIDEO CUTTER — Cắt & Chia Tập Video Chuyên Nghiệp</title>
+  <meta name="description" content="Công cụ cắt và chia video dài thành nhiều tập tự động bằng FFmpeg.wasm ngay trên trình duyệt, giữ nguyên chất lượng gốc." />
+  <link rel="stylesheet" href="style.css" />
+  <!-- JSZip dùng để đóng gói toàn bộ các tập thành 1 file ZIP -->
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js" defer></script>
+  <script src="script.js" defer></script>
+</head>
+<body>
+  <!-- Header -->
+  <header class="app-header">
+    <div class="container header-inner">
+      <div class="brand">
+        <div class="brand-logo" aria-hidden="true">
+          <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect width="40" height="40" rx="10" fill="url(#kaitoGrad)" />
+            <path d="M12 11H16V29H12V11Z" fill="#0B0F19" />
+            <path d="M16 19.5L25.5 11H30.5L20.8 19.8L31 29H25.8L16 20.3V19.5Z" fill="#0B0F19" />
+            <circle cx="29" cy="12" r="2.5" fill="#FDE047" />
+            <defs>
+              <linearGradient id="kaitoGrad" x1="0" y1="0" x2="40" y2="40" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#06B6D4" />
+                <stop offset="1" stop-color="#6366F1" />
+              </linearGradient>
+            </defs>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <h1>KAI TỒ <span>VIDEO CUTTER</span></h1>
+          <p class="brand-sub">Trình chia tập video FFmpeg.wasm • Xử lý 100% trên máy của bạn</p>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <div id="ffmpegStatusBadge" class="status-pill status-idle" title="Trạng thái lõi xử lý FFmpeg.wasm">
+          <span class="status-dot"></span>
+          <span id="ffmpegStatusText">FFmpeg sẵn sàng tải khi xử lý</span>
+        </div>
+        <a href="#userGuideSection" class="btn btn-ghost btn-sm">Hướng dẫn</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="container main-layout">
+    <!-- Banner thông báo lỗi / cảnh báo toàn cục -->
+    <div id="alertBanner" class="alert-banner hidden" role="alert"></div>
+
+    <!-- Bước 1: Tải video -->
+    <section class="card" id="uploadSection">
+      <div class="card-header">
+        <div class="step-badge">1</div>
+        <div>
+          <h2>Chọn video nguồn</h2>
+          <p class="card-desc">Hỗ trợ MP4, MOV, MKV, WEBM... Video không bị tải lên mạng, xử lý hoàn toàn tại máy tính của bạn.</p>
+        </div>
+      </div>
+
+      <div id="dropZone" class="drop-zone" tabindex="0" role="button" aria-label="Chọn hoặc kéo thả file video vào đây">
+        <input type="file" id="videoInput" accept="video/*,.mp4,.mov,.mkv,.webm,.avi,.flv,.ts" hidden />
+        <div class="drop-zone-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M4 6h10a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V8a2 2 0 012-2z" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </div>
+        <h3>Kéo thả video vào đây hoặc nhấn để chọn file</h3>
+        <p>Không giới hạn thời lượng cứng • Khuyên dùng trình duyệt Chrome / Edge bản mới nhất</p>
+        <button type="button" id="selectFileBtn" class="btn btn-primary">Chọn video từ máy</button>
+      </div>
+
+      <!-- Thông tin & Xem trước video nguồn -->
+      <div id="videoInfoSection" class="video-workspace hidden">
+        <div class="preview-box">
+          <video id="sourceVideoPlayer" controls playsinline preload="metadata"></video>
+          <p id="previewFallbackNote" class="muted-note hidden">
+            Trình duyệt không giải mã trực tiếp định dạng này để xem trước, nhưng FFmpeg.wasm vẫn đọc và cắt bình thường.
+          </p>
+        </div>
+
+        <div class="meta-panel">
+          <div class="meta-grid">
+            <div class="meta-item">
+              <span class="meta-label">Tên file</span>
+              <strong id="fileNameDisplay" class="meta-value text-ellipsis">—</strong>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Dung lượng</span>
+              <strong id="fileSizeDisplay" class="meta-value">—</strong>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Tổng thời lượng</span>
+              <strong id="fileDurationDisplay" class="meta-value text-accent">Đang đọc...</strong>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Độ phân giải</span>
+              <strong id="fileResolutionDisplay" class="meta-value">—</strong>
+            </div>
+          </div>
+
+          <div class="meta-actions">
+            <button type="button" id="changeVideoBtn" class="btn btn-secondary btn-sm">Đổi video khác</button>
+            <button type="button" id="clearMemoryBtn" class="btn btn-danger-ghost btn-sm">Xóa & giải phóng RAM</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Bước 2: Cấu hình chia tập & đặt tên -->
+    <section class="card" id="configSection">
+      <div class="card-header">
+        <div class="step-badge">2</div>
+        <div>
+          <h2>Cấu hình chia tập & Đặt tên tự động</h2>
+          <p class="card-desc">Thiết lập thời lượng mỗi tập, chế độ giữ chất lượng và quy tắc đặt tên file MP4.</p>
+        </div>
+      </div>
+
+      <div class="config-grid">
+        <!-- Cột trái: Thời lượng & Chất lượng -->
+        <div class="config-block">
+          <h3 class="block-title">Thời lượng & Chế độ cắt</h3>
+
+          <div class="form-row-2">
+            <div class="form-group">
+              <label for="chunkMinutesInput">Thời lượng mỗi tập (phút)</label>
+              <input type="number" id="chunkMinutesInput" min="0" max="600" step="1" value="12" />
+            </div>
+            <div class="form-group">
+              <label for="chunkSecondsInput">Giây lẻ thêm (giây)</label>
+              <input type="number" id="chunkSecondsInput" min="0" max="59" step="1" value="0" />
+            </div>
+          </div>
+
+          <div class="preset-bar">
+            <span class="preset-label">Chọn nhanh:</span>
+            <button type="button" class="preset-btn" data-min="5">5 phút</button>
+            <button type="button" class="preset-btn" data-min="10">10 phút</button>
+            <button type="button" class="preset-btn active" data-min="12">12 phút</button>
+            <button type="button" class="preset-btn" data-min="15">15 phút</button>
+            <button type="button" class="preset-btn" data-min="20">20 phút</button>
+          </div>
+
+          <div class="mode-selector">
+            <label class="mode-card">
+              <input type="radio" name="cutMode" id="modeCopy" value="copy" checked />
+              <div class="mode-content">
+                <div class="mode-top">
+                  <strong>Giữ nguyên chất lượng gốc (Stream Copy)</strong>
+                  <span class="badge badge-success">Khuyên dùng</span>
+                </div>
+                <p>Dùng <code>-c copy</code>: không nén lại, giữ 100% độ phân giải, FPS, âm thanh gốc và tốc độ cực nhanh.</p>
+              </div>
+            </label>
+
+            <label class="mode-card">
+              <input type="radio" name="cutMode" id="modeReencode" value="reencode" />
+              <div class="mode-content">
+                <div class="mode-top">
+                  <strong>Mã hóa lại chất lượng cao (Cắt chính xác khung hình)</strong>
+                  <span class="badge badge-warn">Chậm hơn</span>
+                </div>
+                <p>Dùng H.264 (CRF 18) + AAC 192k: cắt đúng tới từng giây không lệch keyframe, phù hợp khi cần ghép khung chính xác.</p>
+              </div>
+            </label>
+          </div>
+
+          <div id="keyframeNotice" class="info-callout">
+            <strong>Lưu ý Stream Copy:</strong> Chế độ <code>-c copy</code> chỉ cắt tại khung hình khóa (keyframe) gần nhất nên thời lượng thực tế có thể xê dịch 1–5 giây. Hệ thống sẽ tự kiểm tra và cảnh báo ngay trên từng tập nếu phát hiện độ lệch.
+          </div>
+
+          <div id="reencodeOptions" class="reencode-box hidden">
+            <div class="form-row-2">
+              <div class="form-group">
+                <label for="crfSelect">Mức chất lượng (CRF)</label>
+                <select id="crfSelect">
+                  <option value="16">CRF 16 — Siêu nét (file nặng)</option>
+                  <option value="18" selected>CRF 18 — Rất nét (chuẩn biên tập)</option>
+                  <option value="20">CRF 20 — Nét & gọn dung lượng</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="presetSelect">Tốc độ mã hóa</label>
+                <select id="presetSelect">
+                  <option value="ultrafast">Ultrafast — Nhanh nhất</option>
+                  <option value="veryfast" selected>Veryfast — Cân bằng</option>
+                  <option value="fast">Fast — Nén đẹp hơn (lâu hơn)</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Cột phải: Tiêu đề & Đặt tên tập -->
+        <div class="config-block">
+          <h3 class="block-title">Thông tin tiêu đề & Đặt tên tập</h3>
+
+          <div class="form-group">
+            <label for="videoTitleInput">Tiêu đề phim / video</label>
+            <input type="text" id="videoTitleInput" placeholder="VD: TỔNG TÀI VÀ CÔ VỢ BÍ ẨN" value="" />
+          </div>
+
+          <div class="form-group">
+            <label for="channelNameInput">Tên kênh</label>
+            <input type="text" id="channelNameInput" value="KAI TỒ REVIEW" />
+          </div>
+
+          <label class="checkbox-row">
+            <input type="checkbox" id="includeChannelCheckbox" />
+            <span>Thêm tên kênh vào tên file xuất (VD: <code>[KAI TỒ REVIEW] TIÊU ĐỀ - TẬP 01.mp4</code>)</span>
+          </label>
+
+          <div class="form-row-2">
+            <div class="form-group">
+              <label for="episodePrefixInput">Tên tập bắt đầu (tiền tố)</label>
+              <input type="text" id="episodePrefixInput" value="TẬP" placeholder="VD: TẬP, PHẦN, EP" />
+            </div>
+            <div class="form-group">
+              <label for="startEpisodeInput">Số thứ tự bắt đầu</label>
+              <input type="number" id="startEpisodeInput" min="0" max="9999" value="1" />
+            </div>
+          </div>
+
+          <div class="naming-preview-box">
+            <span class="meta-label">Mẫu tên file đầu tiên:</span>
+            <code id="fileNameSample">VIDEO - TẬP 01.mp4</code>
+          </div>
+
+          <div class="summary-bar">
+            <div>
+              <span class="meta-label">Dự kiến số tập</span>
+              <strong id="totalEpisodesCount">0 tập</strong>
+            </div>
+            <button type="button" id="resetNamesBtn" class="btn btn-ghost btn-sm">Áp dụng lại tên hàng loạt</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Bước 3: Điều khiển xử lý & Tiến trình -->
+    <section class="card" id="actionSection">
+      <div class="action-bar">
+        <div class="action-left">
+          <button type="button" id="startCutBtn" class="btn btn-primary btn-lg" disabled>
+            Bắt đầu chia video
+          </button>
+          <button type="button" id="cancelCutBtn" class="btn btn-danger btn-lg hidden">
+            Hủy quá trình
+          </button>
+        </div>
+
+        <div class="action-right">
+          <span id="ramUsageDisplay" class="ram-badge">Bộ nhớ xuất: 0 MB</span>
+          <button type="button" id="downloadAllZipBtn" class="btn btn-success btn-lg" disabled>
+            Tải toàn bộ (.ZIP)
+          </button>
+        </div>
+      </div>
+
+      <!-- Khu vực tiến trình -->
+      <div id="progressSection" class="progress-panel hidden">
+        <div class="progress-group">
+          <div class="progress-head">
+            <strong id="progressStatusText">Đang chuẩn bị...</strong>
+            <span id="progressPercentText">0%</span>
+          </div>
+          <div class="progress-track">
+            <div id="overallProgressBar" class="progress-fill" style="width: 0%"></div>
+          </div>
+        </div>
+
+        <div class="progress-group">
+          <div class="progress-head">
+            <span id="currentEpText">Tập hiện tại: —</span>
+            <span id="currentEpPercentText">0%</span>
+          </div>
+          <div class="progress-track progress-track-sm">
+            <div id="currentEpProgressBar" class="progress-fill progress-fill-secondary" style="width: 0%"></div>
+          </div>
+        </div>
+
+        <div class="log-controls">
+          <button type="button" id="toggleLogBtn" class="btn btn-ghost btn-xs">Hiện nhật ký FFmpeg</button>
+        </div>
+        <div id="logContainer" class="log-box hidden">
+          <pre id="ffmpegLogOutput"></pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- Bước 4: Danh sách tập & Tải về -->
+    <section class="card" id="episodesSection">
+      <div class="card-header">
+        <div class="step-badge">3</div>
+        <div>
+          <h2>Danh sách các tập</h2>
+          <p class="card-desc">Bạn có thể sửa tiêu đề từng tập trực tiếp bên dưới trước khi bấm chia hoặc trước khi tải về.</p>
+        </div>
+      </div>
+
+      <div id="episodeListContainer" class="episode-list">
+        <div class="empty-state">
+          Hãy chọn một video ở Bước 1 để hệ thống tự động tính toán và liệt kê các tập.
+        </div>
+      </div>
+    </section>
+
+    <!-- Hướng dẫn sử dụng tích hợp -->
+    <section class="card guide-card" id="userGuideSection">
+      <div class="card-header">
+        <div class="step-badge">?</div>
+        <div>
+          <h2>Hướng dẫn sử dụng nhanh</h2>
+          <p class="card-desc">Quy trình 4 bước để chia video dài đăng kênh KAI TỒ REVIEW giữ nguyên độ nét gốc.</p>
+        </div>
+      </div>
+
+      <div class="guide-grid">
+        <div class="guide-item">
+          <h4>1. Chọn video từ máy</h4>
+          <p>Nhấn chọn hoặc kéo thả file MP4/MOV/MKV. Hệ thống đọc trực tiếp từ ổ cứng, không tốn băng thông mạng và bảo mật tuyệt đối.</p>
+        </div>
+        <div class="guide-item">
+          <h4>2. Đặt thời lượng & Tiêu đề</h4>
+          <p>Nhập thời lượng mỗi tập (mặc định 12 phút), tiêu đề phim và số tập bắt đầu. Phần dư cuối video được tự động gom thành tập cuối, không cắt thiếu giây nào.</p>
+        </div>
+        <div class="guide-item">
+          <h4>3. Sửa tên riêng & Bấm chia</h4>
+          <p>Có thể sửa tên riêng từng tập trong bảng danh sách. Mặc định dùng <code>-c copy</code> cho tốc độ nhanh và giữ 100% chất lượng gốc.</p>
+        </div>
+        <div class="guide-item">
+          <h4>4. Xem trước & Xuất file</h4>
+          <p>Bấm xem trước từng tập ngay trên web, tải riêng từng file MP4 hoặc nhấn <strong>Tải toàn bộ (.ZIP)</strong> để gom toàn bộ tập đã đặt tên chuẩn.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="app-footer">
+    <div class="container">
+      <p><strong>KAI TỒ VIDEO CUTTER</strong> • Vận hành bởi FFmpeg.wasm &amp; JSZip • Kênh <strong>KAI TỒ REVIEW</strong></p>
+    </div>
+  </footer>
+
+  <!-- Modal xem trước tập đã cắt -->
+  <div id="previewModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal-backdrop" id="modalBackdrop"></div>
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <div>
+          <h3 id="modalTitle">Xem trước tập</h3>
+          <p id="modalMeta" class="modal-meta"></p>
+        </div>
+        <button type="button" id="closeModalBtn" class="btn-icon" aria-label="Đóng">&times;</button>
+      </div>
+      <div class="modal-body">
+        <video id="modalVideoPlayer" controls playsinline></video>
+      </div>
+      <div class="modal-footer">
+        <button type="button" id="modalDownloadBtn" class="btn btn-primary">Tải tập này (.MP4)</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast thông báo -->
+  <div id="toastContainer" class="toast-container" aria-live="polite"></div>
+</body>
+</html>
