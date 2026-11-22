@@ -4,11 +4,12 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>KAI TỒ VIDEO CUTTER — Cắt & Chia Tập Video Chuyên Nghiệp</title>
-  <meta name="description" content="Công cụ cắt và chia video dài thành nhiều tập tự động bằng FFmpeg.wasm ngay trên trình duyệt, giữ nguyên chất lượng gốc." />
+  <meta name="description" content="Công cụ cắt, chia video dài thành nhiều tập bằng FFmpeg.wasm và tự động đăng Fanpage Facebook." />
   <link rel="stylesheet" href="style.css" />
   <!-- JSZip dùng để đóng gói toàn bộ các tập thành 1 file ZIP -->
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js" defer></script>
   <script src="script.js" defer></script>
+  <script src="fb-publisher.js" defer></script>
 </head>
 <body>
   <!-- Header -->
@@ -40,6 +41,7 @@
           <span class="status-dot"></span>
           <span id="ffmpegStatusText">FFmpeg sẵn sàng tải khi xử lý</span>
         </div>
+        <a href="#facebookSection" class="btn btn-ghost btn-sm">Đăng Facebook</a>
         <a href="#userGuideSection" class="btn btn-ghost btn-sm">Hướng dẫn</a>
       </div>
     </div>
@@ -55,7 +57,7 @@
         <div class="step-badge">1</div>
         <div>
           <h2>Chọn video nguồn</h2>
-          <p class="card-desc">Hỗ trợ MP4, MOV, MKV, WEBM... Video không bị tải lên mạng, xử lý hoàn toàn tại máy tính của bạn.</p>
+          <p class="card-desc">Hỗ trợ MP4, MOV, MKV, WEBM... Video xử lý trực tiếp trên máy tính của bạn.</p>
         </div>
       </div>
 
@@ -162,7 +164,7 @@
                   <strong>Mã hóa lại chất lượng cao (Cắt chính xác khung hình)</strong>
                   <span class="badge badge-warn">Chậm hơn</span>
                 </div>
-                <p>Dùng H.264 (CRF 18) + AAC 192k: cắt đúng tới từng giây không lệch keyframe, phù hợp khi cần ghép khung chính xác.</p>
+                <p>Dùng H.264 (CRF 18) + AAC 192k: cắt đúng tới từng giây không lệch keyframe.</p>
               </div>
             </label>
           </div>
@@ -239,7 +241,7 @@
       </div>
     </section>
 
-    <!-- Bước 3: Điều khiển xử lý & Tiến trình -->
+    <!-- Điều khiển xử lý & Tiến trình -->
     <section class="card" id="actionSection">
       <div class="action-bar">
         <div class="action-left">
@@ -290,7 +292,7 @@
       </div>
     </section>
 
-    <!-- Bước 4: Danh sách tập & Tải về -->
+    <!-- Bước 3: Danh sách tập & Tải về -->
     <section class="card" id="episodesSection">
       <div class="card-header">
         <div class="step-badge">3</div>
@@ -307,32 +309,172 @@
       </div>
     </section>
 
+    <!-- Bước 4: Tự động đăng video lên Facebook Fanpage -->
+    <section class="card fb-card" id="facebookSection">
+      <div class="card-header">
+        <div class="step-badge fb-badge">4</div>
+        <div>
+          <h2>Tự động đăng video lên Facebook Fanpage (Meta Graph API)</h2>
+          <p class="card-desc">Kết nối an toàn qua Backend riêng (không lưu Access Token trên trình duyệt). Nếu chưa kết nối, bạn vẫn cắt và tải video bình thường.</p>
+        </div>
+      </div>
+
+      <!-- A. Khu vực kết nối Facebook & Backend -->
+      <div class="fb-connect-bar">
+        <div class="fb-backend-box">
+          <label for="fbBackendUrlInput">Địa chỉ Backend bảo mật (Link Render của bạn)</label>
+          <div class="fb-inline-input">
+            <input type="url" id="fbBackendUrlInput" placeholder="VD: https://kaito-fb-backend.onrender.com" />
+            <button type="button" id="fbSaveBackendBtn" class="btn btn-secondary btn-sm">Lưu địa chỉ</button>
+          </div>
+        </div>
+
+        <div class="fb-auth-controls">
+          <div id="fbConnectionBadge" class="status-pill status-idle">
+            <span class="status-dot"></span>
+            <span id="fbUserInfo">Chưa kết nối Facebook</span>
+          </div>
+          <button type="button" id="fbConnectBtn" class="btn btn-fb">Kết nối Facebook</button>
+          <button type="button" id="fbDisconnectBtn" class="btn btn-danger-ghost btn-sm hidden">Ngắt kết nối</button>
+        </div>
+      </div>
+
+      <!-- Chọn Fanpage -->
+      <div id="fbPageSelectorRow" class="fb-page-row hidden">
+        <div class="form-group" style="flex: 1;">
+          <label for="fbPageSelect">Chọn Fanpage muốn đăng video</label>
+          <select id="fbPageSelect">
+            <option value="">-- Chọn Fanpage --</option>
+          </select>
+        </div>
+        <button type="button" id="fbRefreshPagesBtn" class="btn btn-secondary btn-sm">Làm mới Fanpage</button>
+      </div>
+
+      <!-- B & C. Nhập nội dung bài đăng & Mẫu tiêu đề tự động -->
+      <div class="config-grid fb-form-grid">
+        <div class="config-block">
+          <h3 class="block-title">Nội dung bài đăng Facebook</h3>
+
+          <div class="form-group">
+            <label for="fbMovieNameInput">1. Tên phim / video</label>
+            <input type="text" id="fbMovieNameInput" placeholder="VD: TỔNG TÀI VÀ CÔ VỢ BÍ ẨN" />
+          </div>
+
+          <div class="form-group">
+            <label for="fbCommonTitleInput">2. Tiêu đề chung</label>
+            <input type="text" id="fbCommonTitleInput" placeholder="VD: Câu chuyện tình yêu đầy bất ngờ." />
+          </div>
+
+          <div class="form-group">
+            <label for="fbTitleTemplateInput">3. Mẫu tiêu đề từng tập (hỗ trợ <code>{TAP}</code>, <code>{TEN_PHIM}</code>, <code>{TIEU_DE_CHUNG}</code>)</label>
+            <input type="text" id="fbTitleTemplateInput" value="{TAP} - {TEN_PHIM}" />
+          </div>
+
+          <div class="form-group">
+            <label for="fbDescriptionInput">4. Nội dung mô tả bài đăng</label>
+            <textarea id="fbDescriptionInput" rows="3" placeholder="Nhập mô tả chung cho tất cả các tập..."></textarea>
+          </div>
+        </div>
+
+        <div class="config-block">
+          <h3 class="block-title">Hashtag & Lịch đăng mặc định</h3>
+
+          <div class="form-group">
+            <label for="fbCommonHashtagsInput">5. Hashtag dùng chung (tự động gắn cuối mỗi bài)</label>
+            <input type="text" id="fbCommonHashtagsInput" value="#KAIToReview #ReviewPhim #PhimHay" />
+          </div>
+
+          <div class="form-group">
+            <label>6. Chế độ thời gian đăng mặc định</label>
+            <div class="fb-radio-inline">
+              <label class="checkbox-row">
+                <input type="radio" name="fbDefaultMode" id="fbDefaultPublishModeNow" value="now" checked />
+                <span>Đăng ngay lập tức</span>
+              </label>
+              <label class="checkbox-row">
+                <input type="radio" name="fbDefaultMode" id="fbDefaultPublishModeSchedule" value="schedule" />
+                <span>Lên lịch đăng từng tập</span>
+              </label>
+            </div>
+          </div>
+
+          <div id="fbAutoScheduleBox" class="reencode-box hidden">
+            <div class="form-row-2">
+              <div class="form-group">
+                <label for="fbScheduleStartInput">Giờ đăng Tập đầu tiên</label>
+                <input type="datetime-local" id="fbScheduleStartInput" />
+              </div>
+              <div class="form-group">
+                <label for="fbScheduleIntervalHours">Mỗi tập cách nhau (giờ)</label>
+                <input type="number" id="fbScheduleIntervalHours" min="0.5" max="168" step="0.5" value="2" />
+              </div>
+            </div>
+            <button type="button" id="fbApplyScheduleAllBtn" class="btn btn-secondary btn-sm" style="margin-top:10px;width:100%;">
+              Tự động rải lịch cho tất cả các tập
+            </button>
+          </div>
+
+          <div class="naming-preview-box">
+            <span class="meta-label">Xem trước tiêu đề Facebook tập đầu:</span>
+            <code id="fbTitlePreviewSample">TẬP 01 - TỔNG TÀI VÀ CÔ VỢ BÍ ẨN</code>
+          </div>
+
+          <button type="button" id="fbApplyTemplateAllBtn" class="btn btn-ghost btn-sm">
+            Áp dụng lại mẫu tiêu đề &amp; mô tả cho toàn bộ tập
+          </button>
+        </div>
+      </div>
+
+      <!-- E. Bảng quản lý trước khi đăng & Điều khiển đăng hàng loạt -->
+      <div class="fb-queue-header">
+        <div>
+          <h3 class="block-title" style="border:none;padding:0;">Quản lý hàng đợi đăng Facebook</h3>
+          <p id="fbQueueStatusText" class="card-desc">Hãy chọn video và chia tập ở các bước trên, sau đó kiểm tra lại nội dung từng tập trước khi đăng.</p>
+        </div>
+        <div class="fb-queue-actions">
+          <button type="button" id="fbStartPublishAllBtn" class="btn btn-fb" disabled>
+            Xác nhận đăng toàn bộ lên Facebook
+          </button>
+          <button type="button" id="fbRetryFailedBtn" class="btn btn-secondary btn-sm hidden">
+            Thử đăng lại tập lỗi
+          </button>
+          <button type="button" id="fbStopQueueBtn" class="btn btn-danger btn-sm hidden">
+            Dừng hàng đợi
+          </button>
+        </div>
+      </div>
+
+      <div id="fbQueueListContainer" class="fb-queue-list">
+        <div class="empty-state">Chưa có tập video nào. Hãy chọn video ở Bước 1 để hệ thống tự động tạo danh sách bài đăng.</div>
+      </div>
+    </section>
+
     <!-- Hướng dẫn sử dụng tích hợp -->
     <section class="card guide-card" id="userGuideSection">
       <div class="card-header">
         <div class="step-badge">?</div>
         <div>
           <h2>Hướng dẫn sử dụng nhanh</h2>
-          <p class="card-desc">Quy trình 4 bước để chia video dài đăng kênh KAI TỒ REVIEW giữ nguyên độ nét gốc.</p>
+          <p class="card-desc">Quy trình 4 bước để chia video dài và đăng lên kênh KAI TỒ REVIEW giữ nguyên độ nét gốc.</p>
         </div>
       </div>
 
       <div class="guide-grid">
         <div class="guide-item">
           <h4>1. Chọn video từ máy</h4>
-          <p>Nhấn chọn hoặc kéo thả file MP4/MOV/MKV. Hệ thống đọc trực tiếp từ ổ cứng, không tốn băng thông mạng và bảo mật tuyệt đối.</p>
+          <p>Nhấn chọn hoặc kéo thả file MP4/MOV/MKV. Hệ thống đọc trực tiếp từ ổ cứng, không cần cài phần mềm.</p>
         </div>
         <div class="guide-item">
           <h4>2. Đặt thời lượng & Tiêu đề</h4>
-          <p>Nhập thời lượng mỗi tập (mặc định 12 phút), tiêu đề phim và số tập bắt đầu. Phần dư cuối video được tự động gom thành tập cuối, không cắt thiếu giây nào.</p>
+          <p>Nhập thời lượng mỗi tập (mặc định 12 phút), tiêu đề phim và số tập bắt đầu. Phần dư cuối video được gom thành tập cuối.</p>
         </div>
         <div class="guide-item">
-          <h4>3. Sửa tên riêng & Bấm chia</h4>
-          <p>Có thể sửa tên riêng từng tập trong bảng danh sách. Mặc định dùng <code>-c copy</code> cho tốc độ nhanh và giữ 100% chất lượng gốc.</p>
+          <h4>3. Bấm chia & Tải về</h4>
+          <p>Mặc định dùng <code>-c copy</code> giữ 100% chất lượng gốc. Sau khi cắt xong có thể xem trước, tải từng tập MP4 hoặc tải file ZIP.</p>
         </div>
         <div class="guide-item">
-          <h4>4. Xem trước & Xuất file</h4>
-          <p>Bấm xem trước từng tập ngay trên web, tải riêng từng file MP4 hoặc nhấn <strong>Tải toàn bộ (.ZIP)</strong> để gom toàn bộ tập đã đặt tên chuẩn.</p>
+          <h4>4. Đăng Facebook tự động</h4>
+          <p>Kết nối Fanpage qua Backend bảo mật, nhập mô tả/hashtag một lần rồi bấm xác nhận để đăng lần lượt từng tập hoặc hẹn lịch.</p>
         </div>
       </div>
     </section>
@@ -340,7 +482,7 @@
 
   <footer class="app-footer">
     <div class="container">
-      <p><strong>KAI TỒ VIDEO CUTTER</strong> • Vận hành bởi FFmpeg.wasm &amp; JSZip • Kênh <strong>KAI TỒ REVIEW</strong></p>
+      <p><strong>KAI TỒ VIDEO CUTTER</strong> • Vận hành bởi FFmpeg.wasm, JSZip &amp; Meta Graph API • Kênh <strong>KAI TỒ REVIEW</strong></p>
     </div>
   </footer>
 
@@ -360,6 +502,50 @@
       </div>
       <div class="modal-footer">
         <button type="button" id="modalDownloadBtn" class="btn btn-primary">Tải tập này (.MP4)</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal chỉnh sửa nội dung Facebook cho từng tập -->
+  <div id="fbEditModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="fbEditEpisodeLabel">
+    <div class="modal-backdrop" id="fbEditBackdrop"></div>
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <div>
+          <h3 id="fbEditEpisodeLabel">Chỉnh sửa bài đăng Facebook</h3>
+          <p class="modal-meta">Chỉnh sửa tiêu đề, mô tả, hashtag riêng và lịch đăng cho tập này.</p>
+        </div>
+        <button type="button" id="fbEditCloseBtn" class="btn-icon" aria-label="Đóng">&times;</button>
+      </div>
+      <div class="modal-body fb-modal-form">
+        <div class="form-group">
+          <label for="fbEditTitleInput">Tiêu đề video trên Facebook</label>
+          <input type="text" id="fbEditTitleInput" />
+        </div>
+        <div class="form-group">
+          <label for="fbEditDescInput">Nội dung mô tả (chưa gồm hashtag)</label>
+          <textarea id="fbEditDescInput" rows="4"></textarea>
+        </div>
+        <div class="form-group">
+          <label for="fbEditCustomTagsInput">Hashtag riêng của tập này (tự nối sau hashtag chung)</label>
+          <input type="text" id="fbEditCustomTagsInput" placeholder="VD: #Tap01 #DramaNgonTinh" />
+        </div>
+        <div class="form-row-2">
+          <div class="form-group">
+            <label for="fbEditPublishMode">Thời điểm đăng</label>
+            <select id="fbEditPublishMode">
+              <option value="now">Đăng ngay lập tức</option>
+              <option value="schedule">Hẹn lịch đăng</option>
+            </select>
+          </div>
+          <div class="form-group" id="fbEditScheduleGroup">
+            <label for="fbEditScheduleInput">Ngày giờ đăng (cách hiện tại ít nhất 10 phút)</label>
+            <input type="datetime-local" id="fbEditScheduleInput" />
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" id="fbEditSaveBtn" class="btn btn-primary">Lưu thay đổi</button>
       </div>
     </div>
   </div>
