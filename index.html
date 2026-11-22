@@ -6,7 +6,6 @@
   <title>KAI TỒ VIDEO CUTTER — Cắt & Chia Tập Video Chuyên Nghiệp</title>
   <meta name="description" content="Công cụ cắt, chia video dài thành nhiều tập bằng FFmpeg.wasm và tự động đăng Fanpage Facebook." />
   <link rel="stylesheet" href="style.css" />
-  <!-- JSZip dùng để đóng gói toàn bộ các tập thành 1 file ZIP -->
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js" defer></script>
   <script src="script.js" defer></script>
   <script src="fb-publisher.js" defer></script>
@@ -350,7 +349,7 @@
         <button type="button" id="fbRefreshPagesBtn" class="btn btn-secondary btn-sm">Làm mới Fanpage</button>
       </div>
 
-      <!-- B & C. Nhập nội dung bài đăng & Mẫu tiêu đề tự động -->
+      <!-- B & C. Nhập nội dung bài đăng, Ảnh bìa (Thumbnail) & Mẫu tiêu đề -->
       <div class="config-grid fb-form-grid">
         <div class="config-block">
           <h3 class="block-title">Nội dung bài đăng Facebook</h3>
@@ -377,15 +376,34 @@
         </div>
 
         <div class="config-block">
-          <h3 class="block-title">Hashtag & Lịch đăng mặc định</h3>
+          <h3 class="block-title">Hashtag, Ảnh bìa (Thumbnail) & Lịch đăng</h3>
 
           <div class="form-group">
             <label for="fbCommonHashtagsInput">5. Hashtag dùng chung (tự động gắn cuối mỗi bài)</label>
             <input type="text" id="fbCommonHashtagsInput" value="#KAIToReview #ReviewPhim #PhimHay" />
           </div>
 
+          <!-- Ảnh bìa (Thumbnail) dùng chung -->
           <div class="form-group">
-            <label>6. Chế độ thời gian đăng mặc định</label>
+            <label>6. Ảnh bìa (Thumbnail) dùng chung cho tất cả các tập</label>
+            <input type="file" id="fbCommonThumbInput" accept="image/jpeg,image/png,image/webp,image/*" hidden />
+            <div class="fb-thumb-box">
+              <div class="fb-thumb-preview-wrap">
+                <img id="fbCommonThumbPreview" class="fb-thumb-img hidden" alt="Xem trước ảnh bìa chung" />
+                <div id="fbCommonThumbPlaceholder" class="fb-thumb-placeholder">Chưa chọn ảnh bìa</div>
+              </div>
+              <div class="fb-thumb-controls">
+                <p class="fb-thumb-note">Hỗ trợ JPG, PNG, WEBP. Bạn vẫn có thể chọn ảnh bìa riêng cho từng tập ở danh sách bên dưới.</p>
+                <div class="fb-thumb-btns">
+                  <button type="button" id="fbSelectCommonThumbBtn" class="btn btn-secondary btn-sm">Chọn ảnh bìa</button>
+                  <button type="button" id="fbRemoveCommonThumbBtn" class="btn btn-danger-ghost btn-sm hidden">Xóa ảnh</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>7. Chế độ thời gian đăng mặc định</label>
             <div class="fb-radio-inline">
               <label class="checkbox-row">
                 <input type="radio" name="fbDefaultMode" id="fbDefaultPublishModeNow" value="now" checked />
@@ -429,7 +447,7 @@
       <div class="fb-queue-header">
         <div>
           <h3 class="block-title" style="border:none;padding:0;">Quản lý hàng đợi đăng Facebook</h3>
-          <p id="fbQueueStatusText" class="card-desc">Hãy chọn video và chia tập ở các bước trên, sau đó kiểm tra lại nội dung từng tập trước khi đăng.</p>
+          <p id="fbQueueStatusText" class="card-desc">Hãy chọn video và chia tập ở các bước trên, sau đó kiểm tra lại nội dung và ảnh bìa từng tập trước khi đăng.</p>
         </div>
         <div class="fb-queue-actions">
           <button type="button" id="fbStartPublishAllBtn" class="btn btn-fb" disabled>
@@ -473,8 +491,8 @@
           <p>Mặc định dùng <code>-c copy</code> giữ 100% chất lượng gốc. Sau khi cắt xong có thể xem trước, tải từng tập MP4 hoặc tải file ZIP.</p>
         </div>
         <div class="guide-item">
-          <h4>4. Đăng Facebook tự động</h4>
-          <p>Kết nối Fanpage qua Backend bảo mật, nhập mô tả/hashtag một lần rồi bấm xác nhận để đăng lần lượt từng tập hoặc hẹn lịch.</p>
+          <h4>4. Gắn ảnh bìa & Đăng Facebook</h4>
+          <p>Chọn ảnh bìa (Thumbnail) chung hoặc riêng từng tập, nhập mô tả/hashtag rồi bấm xác nhận để đăng lần lượt lên Fanpage.</p>
         </div>
       </div>
     </section>
@@ -506,14 +524,14 @@
     </div>
   </div>
 
-  <!-- Modal chỉnh sửa nội dung Facebook cho từng tập -->
+  <!-- Modal chỉnh sửa nội dung & Thumbnail Facebook cho từng tập -->
   <div id="fbEditModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="fbEditEpisodeLabel">
     <div class="modal-backdrop" id="fbEditBackdrop"></div>
     <div class="modal-dialog">
       <div class="modal-header">
         <div>
           <h3 id="fbEditEpisodeLabel">Chỉnh sửa bài đăng Facebook</h3>
-          <p class="modal-meta">Chỉnh sửa tiêu đề, mô tả, hashtag riêng và lịch đăng cho tập này.</p>
+          <p class="modal-meta">Chỉnh sửa tiêu đề, mô tả, ảnh bìa riêng, hashtag và lịch đăng cho tập này.</p>
         </div>
         <button type="button" id="fbEditCloseBtn" class="btn-icon" aria-label="Đóng">&times;</button>
       </div>
@@ -524,12 +542,33 @@
         </div>
         <div class="form-group">
           <label for="fbEditDescInput">Nội dung mô tả (chưa gồm hashtag)</label>
-          <textarea id="fbEditDescInput" rows="4"></textarea>
+          <textarea id="fbEditDescInput" rows="3"></textarea>
         </div>
         <div class="form-group">
           <label for="fbEditCustomTagsInput">Hashtag riêng của tập này (tự nối sau hashtag chung)</label>
           <input type="text" id="fbEditCustomTagsInput" placeholder="VD: #Tap01 #DramaNgonTinh" />
         </div>
+
+        <!-- Ảnh bìa riêng từng tập -->
+        <div class="form-group">
+          <label>Ảnh bìa (Thumbnail) của tập này</label>
+          <input type="file" id="fbEditThumbInput" accept="image/jpeg,image/png,image/webp,image/*" hidden />
+          <div class="fb-thumb-box">
+            <div class="fb-thumb-preview-wrap">
+              <img id="fbEditThumbPreview" class="fb-thumb-img hidden" alt="Xem trước ảnh bìa tập" />
+              <div id="fbEditThumbPlaceholder" class="fb-thumb-placeholder">Chưa có ảnh bìa</div>
+            </div>
+            <div class="fb-thumb-controls">
+              <p id="fbEditThumbHint" class="fb-thumb-note">Đang dùng ảnh bìa chung (hoặc mặc định Facebook).</p>
+              <div class="fb-thumb-btns">
+                <button type="button" id="fbEditSelectThumbBtn" class="btn btn-secondary btn-sm">Chọn ảnh riêng</button>
+                <button type="button" id="fbEditCaptureThumbBtn" class="btn btn-ghost btn-sm">Chụp từ video tập này</button>
+                <button type="button" id="fbEditResetThumbBtn" class="btn btn-danger-ghost btn-sm hidden">Dùng lại ảnh chung</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div class="form-row-2">
           <div class="form-group">
             <label for="fbEditPublishMode">Thời điểm đăng</label>
