@@ -1,9 +1,8 @@
-/* KAI TỒ VIDEO CUTTER — Module tự động đăng video Facebook (Meta Graph API qua Backend bảo mật) */
+/* KAI TỒ VIDEO CUTTER — Module tự động đăng video & ảnh bìa Thumbnail lên Facebook (Meta Graph API) */
 
 (() => {
   "use strict";
 
-  // Đã điền sẵn link Render của bạn để web tự nhớ luôn
   const DEFAULT_BACKEND_URL = "https://kaito-fb-backend.onrender.com";
   const STORAGE_BACKEND_KEY = "kaito_fb_backend_url";
   const STORAGE_SESSION_KEY = "kaito_fb_session_id";
@@ -16,10 +15,12 @@
     user: null,
     pages: [],
     selectedPageId: localStorage.getItem(STORAGE_PAGE_KEY) || "",
+    commonThumb: null, // { dataUrl, mime, name }
     postsByIndex: new Map(),
     isPublishing: false,
     stopRequested: false,
-    editingIndex: null
+    editingIndex: null,
+    editDraftThumb: null // thumbnail tạm trong modal chỉnh sửa
   };
 
   const ui = {
@@ -41,6 +42,13 @@
     titlePreviewSample: document.getElementById("fbTitlePreviewSample"),
     applyTemplateAllBtn: document.getElementById("fbApplyTemplateAllBtn"),
 
+    // Thumbnail dùng chung
+    commonThumbInput: document.getElementById("fbCommonThumbInput"),
+    selectCommonThumbBtn: document.getElementById("fbSelectCommonThumbBtn"),
+    removeCommonThumbBtn: document.getElementById("fbRemoveCommonThumbBtn"),
+    commonThumbPreview: document.getElementById("fbCommonThumbPreview"),
+    commonThumbPlaceholder: document.getElementById("fbCommonThumbPlaceholder"),
+
     modeNowRadio: document.getElementById("fbDefaultPublishModeNow"),
     modeScheduleRadio: document.getElementById("fbDefaultPublishModeSchedule"),
     autoScheduleBox: document.getElementById("fbAutoScheduleBox"),
@@ -54,6 +62,7 @@
     queueStatusText: document.getElementById("fbQueueStatusText"),
     queueListContainer: document.getElementById("fbQueueListContainer"),
 
+    // Modal chỉnh sửa từng tập
     editModal: document.getElementById("fbEditModal"),
     editBackdrop: document.getElementById("fbEditBackdrop"),
     editCloseBtn: document.getElementById("fbEditCloseBtn"),
@@ -61,6 +70,13 @@
     editTitleInput: document.getElementById("fbEditTitleInput"),
     editDescInput: document.getElementById("fbEditDescInput"),
     editCustomTagsInput: document.getElementById("fbEditCustomTagsInput"),
+    editThumbInput: document.getElementById("fbEditThumbInput"),
+    editThumbPreview: document.getElementById("fbEditThumbPreview"),
+    editThumbPlaceholder: document.getElementById("fbEditThumbPlaceholder"),
+    editThumbHint: document.getElementById("fbEditThumbHint"),
+    editSelectThumbBtn: document.getElementById("fbEditSelectThumbBtn"),
+    editCaptureThumbBtn: document.getElementById("fbEditCaptureThumbBtn"),
+    editResetThumbBtn: document.getElementById("fbEditResetThumbBtn"),
     editPublishMode: document.getElementById("fbEditPublishMode"),
     editScheduleGroup: document.getElementById("fbEditScheduleGroup"),
     editScheduleInput: document.getElementById("fbEditScheduleInput"),
@@ -116,6 +132,172 @@
     const p = fbState.pages.find((x) => x.id === fbState.selectedPageId);
     return p ? p.name : "Chưa chọn Fanpage";
   }
+
+  /* ===================== XỬ LÝ ẢNH THUMBNAIL ===================== */
+
+  // Chuẩn hóa ảnh chọn từ máy sang JPEG tối đa 1920px để Meta luôn nhận mượt
+  function imageFileToJpeg(file) {
+    return new Promise((resolve, reject) => {
+      if (!file || !file.type.startsWith("image/")) {
+        reject(new Error("Vui lòng chọn đúng file ảnh (JPG, PNG, WEBP)."));
+        return;
+      }
+
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+
+      img.onload = () => {
+        try {
+          const maxSide = 1920;
+          let w = img.naturalWidth || 1280;
+          let h = img.naturalHeight || 720;
+          if (w > maxSide || h > maxSide) {
+            const ratio = Math.min(maxSide / w, maxSide / h);
+            w = Math.round(w * ratio);
+            h = Math.round(h * ratio);
+          }
+
+          const canvas = document.createElement("canvas");
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(img, 0, 0, w, h);
+
+          const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
+          URL.revokeObjectURL(url);
+          resolve({
+            dataUrl,
+            mime: "image/jpeg",
+            name: file.name
+          });
+        } catch (err) {
+          URL.revokeObjectURL(url);
+          reject(err);
+        }
+      };
+
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error("Không đọc được file ảnh này."));
+      };
+
+      img.src = url;
+    });
+  }
+
+  // Chụp 1 khung hình từ file video MP4 đã cắt để làm ảnh bìa
+  function captureFrameFromVideo(blobUrl) {
+    return new Promise((resolve, reject) => {
+      const video = document.createElement("video");
+      video.muted = true;
+      video.playsInline = true;
+      video.preload = "auto";
+      video.src = blobUrl;
+
+      const timer = setTimeout(() => {
+        cleanup();
+        reject(new Error("Quá thời gian chụp khung hình từ video."));
+      }, 10000);
+
+      function cleanup() {
+        clearTimeout(timer);
+        video.onloadeddata = null;
+        video.onseeked = null;
+        video.onerror = null;
+      }
+
+      video.onloadeddata = () => {
+        const targetTime = Number.isFinite(video.duration) && video.duration > 2
+          ? Math.min(5, video.duration * 0.15)
+          : 0.2;
+        video.currentTime = targetTime;
+      };
+
+      video.onseeked = () => {
+        try {
+          const maxSide = 1920;
+          let w = video.videoWidth || 1280;
+          let h = video.videoHeight || 720;
+          if (w > maxSide || h > maxSide) {
+            const ratio = Math.min(maxSide / w, maxSide / h);
+            w = Math.round(w * ratio);
+            h = Math.round(h * ratio);
+          }
+          const canvas = document.createElement("canvas");
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(video, 0, 0, w, h);
+          const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
+          cleanup();
+          resolve({
+            dataUrl,
+            mime: "image/jpeg",
+            name: "frame_from_video.jpg"
+          });
+        } catch (err) {
+          cleanup();
+          reject(err);
+        }
+      };
+
+      video.onerror = () => {
+        cleanup();
+        reject(new Error("Không thể đọc khung hình từ video này."));
+      };
+    });
+  }
+
+  function updateCommonThumbUI() {
+    if (fbState.commonThumb) {
+      ui.commonThumbPreview.src = fbState.commonThumb.dataUrl;
+      ui.commonThumbPreview.classList.remove("hidden");
+      ui.commonThumbPlaceholder.classList.add("hidden");
+      ui.removeCommonThumbBtn.classList.remove("hidden");
+    } else {
+      ui.commonThumbPreview.removeAttribute("src");
+      ui.commonThumbPreview.classList.add("hidden");
+      ui.commonThumbPlaceholder.classList.remove("hidden");
+      ui.removeCommonThumbBtn.classList.add("hidden");
+    }
+    renderQueue();
+  }
+
+  function updateEditThumbUI() {
+    const activeThumb = fbState.editDraftThumb || fbState.commonThumb;
+    if (activeThumb) {
+      ui.editThumbPreview.src = activeThumb.dataUrl;
+      ui.editThumbPreview.classList.remove("hidden");
+      ui.editThumbPlaceholder.classList.add("hidden");
+    } else {
+      ui.editThumbPreview.removeAttribute("src");
+      ui.editThumbPreview.classList.add("hidden");
+      ui.editThumbPlaceholder.classList.remove("hidden");
+    }
+
+    if (fbState.editDraftThumb) {
+      ui.editThumbHint.textContent = `Đang dùng ảnh bìa riêng (${fbState.editDraftThumb.name}).`;
+      ui.editResetThumbBtn.classList.remove("hidden");
+    } else if (fbState.commonThumb) {
+      ui.editThumbHint.textContent = "Đang dùng ảnh bìa chung của bộ phim.";
+      ui.editResetThumbBtn.classList.add("hidden");
+    } else {
+      ui.editThumbHint.textContent = "Chưa chọn ảnh bìa (Facebook sẽ tự lấy khung hình mặc định).";
+      ui.editResetThumbBtn.classList.add("hidden");
+    }
+  }
+
+  function getEffectiveThumb(post) {
+    if (post && post.customThumb) {
+      return { thumb: post.customThumb, label: "Ảnh bìa riêng" };
+    }
+    if (fbState.commonThumb) {
+      return { thumb: fbState.commonThumb, label: "Ảnh bìa chung" };
+    }
+    return { thumb: null, label: "Mặc định FB" };
+  }
+
+  /* ===================== KẾT NỐI BACKEND & OAUTH ===================== */
 
   async function apiFetch(path, options = {}) {
     if (!fbState.backendUrl) {
@@ -218,6 +400,8 @@
     }
   }
 
+  /* ===================== TẠO TIÊU ĐỀ, MÔ TẢ & HASHTAG ===================== */
+
   function buildFbTitle(epNumber) {
     const movie = ui.movieNameInput.value.trim() || cutter().getVideoTitle() || "VIDEO";
     const commonTitle = ui.commonTitleInput.value.trim();
@@ -290,6 +474,7 @@
           fbTitle: buildFbTitle(seg.epNumber),
           fbDescription: buildBaseDescription(),
           customHashtags: "",
+          customThumb: null,
           customEdited: false,
           publishMode: defaultMode,
           scheduledAt: "",
@@ -350,6 +535,8 @@
     renderQueue();
     cutter().showToast(`Đã rải lịch tự động cho ${segs.length} tập (cách nhau ${stepHours} giờ).`, "success");
   }
+
+  /* ===================== HIỂN THỊ BẢNG QUẢN LÝ TRƯỚC KHI ĐĂNG ===================== */
 
   function getFbStatusBadge(post) {
     if (post.status === "uploading") {
@@ -430,6 +617,11 @@
           ? `Hẹn lịch: ${formatDisplayDatetime(post.scheduledAt)}`
           : "Đăng ngay lập tức";
 
+      const { thumb, label: thumbLabel } = getEffectiveThumb(post);
+      const thumbHtml = thumb
+        ? `<img src="${thumb.dataUrl}" alt="Ảnh bìa tập ${post.epNumber}" />`
+        : `<span class="fb-thumb-placeholder">Chưa chọn ảnh</span>`;
+
       const permalinkHtml = post.permalinkUrl
         ? `<div><a class="fb-link-btn" href="${escapeHtml(post.permalinkUrl)}" target="_blank" rel="noopener noreferrer">Mở bài đăng trên Facebook ↗</a></div>`
         : "";
@@ -441,6 +633,11 @@
       const canSinglePost = fbState.connected && Boolean(fbState.selectedPageId) && hasVideo && !fbState.isPublishing && post.status !== "posted";
 
       card.innerHTML = `
+        <div class="fb-queue-thumb">
+          <div class="fb-queue-thumb-frame">${thumbHtml}</div>
+          <span class="fb-queue-thumb-tag">${escapeHtml(thumbLabel)}</span>
+        </div>
+
         <div>
           <div class="fb-post-title">${escapeHtml(post.fbTitle)}</div>
           <div class="fb-post-desc">${escapeHtml(post.fbDescription || "(Chưa có mô tả)")}</div>
@@ -481,6 +678,8 @@
     updateQueueButtons();
   }
 
+  /* ===================== UPLOAD VIDEO + THUMBNAIL LÊN FACEBOOK ===================== */
+
   async function publishSingleEpisode(seg) {
     const post = fbState.postsByIndex.get(seg.index);
     if (!post || !seg.blob) return;
@@ -509,6 +708,7 @@
       const pageId = fbState.selectedPageId;
       const blob = seg.blob;
 
+      // Pha 1: Start
       const startRes = await apiFetch("/api/facebook/upload/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -524,6 +724,7 @@
       let startOffset = Number(startRes.start_offset);
       let endOffset = Number(startRes.end_offset);
 
+      // Pha 2: Transfer từng mảnh
       while (startOffset < endOffset) {
         if (fbState.stopRequested) {
           throw new Error("Người dùng đã dừng hàng đợi đăng bài.");
@@ -549,8 +750,11 @@
         renderQueue();
       }
 
+      // Pha 3: Finish + đính kèm ảnh bìa (Thumbnail)
       post.uploadPercent = 98;
       renderQueue();
+
+      const { thumb } = getEffectiveThumb(post);
 
       const finishRes = await apiFetch("/api/facebook/upload/finish", {
         method: "POST",
@@ -563,7 +767,9 @@
           description: buildFullDescriptionWithHashtags(post),
           publishMode: post.publishMode,
           scheduledPublishTime: scheduledUnix,
-          idempotencyKey: post.idempotencyKey
+          idempotencyKey: post.idempotencyKey,
+          thumbnailBase64: thumb ? thumb.dataUrl : "",
+          thumbnailMime: thumb ? thumb.mime : ""
         })
       });
 
@@ -627,10 +833,15 @@
     renderQueue();
   }
 
+  /* ===================== MODAL CHỈNH SỬA TỪNG TẬP ===================== */
+
   function openEditModal(index) {
     const post = fbState.postsByIndex.get(index);
+    const seg = cutter().getSegments().find((s) => s.index === index);
     if (!post) return;
+
     fbState.editingIndex = index;
+    fbState.editDraftThumb = post.customThumb ? { ...post.customThumb } : null;
 
     ui.editEpisodeLabel.textContent = `Chỉnh sửa bài đăng — Tập ${String(post.epNumber).padStart(2, "0")}`;
     ui.editTitleInput.value = post.fbTitle;
@@ -639,11 +850,18 @@
     ui.editPublishMode.value = post.publishMode;
     ui.editScheduleInput.value = post.scheduledAt || toLocalDatetimeInputValue(new Date(Date.now() + 30 * 60 * 1000));
     ui.editScheduleGroup.classList.toggle("hidden", post.publishMode !== "schedule");
+
+    // Bật nút "Chụp từ video tập này" nếu tập đó đã cắt ra file MP4
+    ui.editCaptureThumbBtn.disabled = !(seg && seg.blobUrl);
+    ui.editThumbInput.value = "";
+    updateEditThumbUI();
+
     ui.editModal.classList.remove("hidden");
   }
 
   function closeEditModal() {
     fbState.editingIndex = null;
+    fbState.editDraftThumb = null;
     ui.editModal.classList.add("hidden");
   }
 
@@ -655,14 +873,17 @@
     post.fbTitle = ui.editTitleInput.value.trim() || buildFbTitle(post.epNumber);
     post.fbDescription = ui.editDescInput.value.trim();
     post.customHashtags = ui.editCustomTagsInput.value.trim();
+    post.customThumb = fbState.editDraftThumb ? { ...fbState.editDraftThumb } : null;
     post.publishMode = ui.editPublishMode.value;
     post.scheduledAt = post.publishMode === "schedule" ? ui.editScheduleInput.value : "";
     post.customEdited = true;
 
     closeEditModal();
     renderQueue();
-    cutter().showToast("Đã cập nhật nội dung bài đăng Facebook.", "success");
+    cutter().showToast("Đã cập nhật nội dung & ảnh bìa bài đăng Facebook.", "success");
   }
+
+  /* ===================== GẮN SỰ KIỆN ===================== */
 
   function init() {
     ui.backendUrlInput.value = fbState.backendUrl;
@@ -729,6 +950,68 @@
       } catch (err) {
         cutter().showToast(err.message, "error");
       }
+    });
+
+    // Sự kiện ảnh bìa dùng chung
+    ui.selectCommonThumbBtn.addEventListener("click", () => ui.commonThumbInput.click());
+    ui.commonThumbInput.addEventListener("change", async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      try {
+        fbState.commonThumb = await imageFileToJpeg(file);
+        updateCommonThumbUI();
+        cutter().showToast("Đã thêm ảnh bìa (Thumbnail) chung cho tất cả các tập.", "success");
+      } catch (err) {
+        cutter().showToast(err.message, "error");
+      }
+      ui.commonThumbInput.value = "";
+    });
+
+    ui.removeCommonThumbBtn.addEventListener("click", () => {
+      fbState.commonThumb = null;
+      updateCommonThumbUI();
+      cutter().showToast("Đã gỡ ảnh bìa chung.", "info");
+    });
+
+    // Sự kiện ảnh bìa riêng trong modal chỉnh sửa
+    ui.editSelectThumbBtn.addEventListener("click", () => ui.editThumbInput.click());
+    ui.editThumbInput.addEventListener("change", async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      try {
+        fbState.editDraftThumb = await imageFileToJpeg(file);
+        updateEditThumbUI();
+        cutter().showToast("Đã chọn ảnh bìa riêng cho tập này.", "success");
+      } catch (err) {
+        cutter().showToast(err.message, "error");
+      }
+      ui.editThumbInput.value = "";
+    });
+
+    ui.editCaptureThumbBtn.addEventListener("click", async () => {
+      if (fbState.editingIndex === null) return;
+      const seg = cutter().getSegments().find((s) => s.index === fbState.editingIndex);
+      if (!seg || !seg.blobUrl) {
+        cutter().showToast("Hãy cắt video trước để chụp khung hình từ tập này.", "warn");
+        return;
+      }
+      try {
+        ui.editCaptureThumbBtn.disabled = true;
+        ui.editCaptureThumbBtn.textContent = "Đang chụp...";
+        fbState.editDraftThumb = await captureFrameFromVideo(seg.blobUrl);
+        updateEditThumbUI();
+        cutter().showToast("Đã chụp khung hình từ video làm ảnh bìa!", "success");
+      } catch (err) {
+        cutter().showToast(err.message, "error");
+      } finally {
+        ui.editCaptureThumbBtn.disabled = false;
+        ui.editCaptureThumbBtn.textContent = "Chụp từ video tập này";
+      }
+    });
+
+    ui.editResetThumbBtn.addEventListener("click", () => {
+      fbState.editDraftThumb = null;
+      updateEditThumbUI();
     });
 
     [ui.movieNameInput, ui.commonTitleInput, ui.titleTemplateInput, ui.descriptionInput, ui.commonHashtagsInput].forEach((input) => {
