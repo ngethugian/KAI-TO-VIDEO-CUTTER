@@ -1,7 +1,10 @@
-/* KAI TỒ VIDEO CUTTER — Logic ứng dụng chính (đã tích hợp cầu nối Facebook) */
+/* KAI TỒ VIDEO CUTTER — Logic ứng dụng chính (hỗ trợ Logo mờ góc trên trái + cầu nối Facebook) */
 
 (() => {
   "use strict";
+
+  const STORAGE_LOGO_SETTINGS = "kaito_logo_settings_v1";
+  const STORAGE_LOGO_DATAURL = "kaito_logo_dataurl_v1";
 
   const state = {
     sourceFile: null,
@@ -16,7 +19,15 @@
     workerMountedFile: null,
     requestSeq: 0,
     pendingRequests: new Map(),
-    modalSegmentId: null
+    modalSegmentId: null,
+    logo: {
+      enabled: false,
+      dataUrl: "",
+      name: "",
+      opacity: 45,
+      sizePct: 14,
+      marginPct: 2.5
+    }
   };
 
   const el = {
@@ -30,6 +41,7 @@
 
     videoInfoSection: document.getElementById("videoInfoSection"),
     sourceVideoPlayer: document.getElementById("sourceVideoPlayer"),
+    logoOverlayPreview: document.getElementById("logoOverlayPreview"),
     previewFallbackNote: document.getElementById("previewFallbackNote"),
     fileNameDisplay: document.getElementById("fileNameDisplay"),
     fileSizeDisplay: document.getElementById("fileSizeDisplay"),
@@ -48,6 +60,21 @@
     reencodeOptions: document.getElementById("reencodeOptions"),
     crfSelect: document.getElementById("crfSelect"),
     presetSelect: document.getElementById("presetSelect"),
+
+    // Điều khiển Logo mờ góc trên trái
+    enableLogoCheckbox: document.getElementById("enableLogoCheckbox"),
+    logoSettingsBox: document.getElementById("logoSettingsBox"),
+    logoFileInput: document.getElementById("logoFileInput"),
+    selectLogoBtn: document.getElementById("selectLogoBtn"),
+    removeLogoBtn: document.getElementById("removeLogoBtn"),
+    logoThumbPreview: document.getElementById("logoThumbPreview"),
+    logoThumbPlaceholder: document.getElementById("logoThumbPlaceholder"),
+    logoOpacityInput: document.getElementById("logoOpacityInput"),
+    logoOpacityValue: document.getElementById("logoOpacityValue"),
+    logoSizeInput: document.getElementById("logoSizeInput"),
+    logoSizeValue: document.getElementById("logoSizeValue"),
+    logoMarginInput: document.getElementById("logoMarginInput"),
+    logoMarginValue: document.getElementById("logoMarginValue"),
 
     videoTitleInput: document.getElementById("videoTitleInput"),
     channelNameInput: document.getElementById("channelNameInput"),
@@ -170,6 +197,209 @@
     window.dispatchEvent(new CustomEvent("kaito:segments-updated"));
   }
 
+  /* ===================== QUẢN LÝ LOGO MỜ (WATERMARK) ===================== */
+
+  function loadImage(src) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error("Không đọc được file ảnh logo."));
+      img.src = src;
+    });
+  }
+
+  function getVideoDimensions() {
+    if (el.sourceVideoPlayer && el.sourceVideoPlayer.videoWidth && el.sourceVideoPlayer.videoHeight) {
+      return {
+        width: el.sourceVideoPlayer.videoWidth,
+        height: el.sourceVideoPlayer.videoHeight
+      };
+    }
+    const match = (state.resolution || "").match(/(\d+)\s*[×x]\s*(\d+)/i);
+    if (match) {
+      return { width: parseInt(match[1], 10), height: parseInt(match[2], 10) };
+    }
+    return { width: 1280, height: 720 };
+  }
+
+  function saveLogoPrefs() {
+    try {
+      localStorage.setItem(
+        STORAGE_LOGO_SETTINGS,
+        JSON.stringify({
+          enabled: state.logo.enabled,
+          name: state.logo.name,
+          opacity: state.logo.opacity,
+          sizePct: state.logo.sizePct,
+          marginPct: state.logo.marginPct
+        })
+      );
+      if (state.logo.dataUrl && state.logo.dataUrl.length < 1800000) {
+        localStorage.setItem(STORAGE_LOGO_DATAURL, state.logo.dataUrl);
+      } else if (!state.logo.dataUrl) {
+        localStorage.removeItem(STORAGE_LOGO_DATAURL);
+      }
+    } catch (_) {}
+  }
+
+  function restoreLogoPrefs() {
+    try {
+      const raw = localStorage.getItem(STORAGE_LOGO_SETTINGS);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        state.logo.enabled = Boolean(parsed.enabled);
+        state.logo.name = parsed.name || "";
+        state.logo.opacity = Math.max(10, Math.min(100, Number(parsed.opacity) || 45));
+        state.logo.sizePct = Math.max(5, Math.min(35, Number(parsed.sizePct) || 14));
+        state.logo.marginPct = Math.max(0, Math.min(10, Number(parsed.marginPct ?? 2.5)));
+      }
+      const savedUrl = localStorage.getItem(STORAGE_LOGO_DATAURL);
+      if (savedUrl) {
+        state.logo.dataUrl = savedUrl;
+      }
+    } catch (_) {}
+  }
+
+  function updateModeVisibility() {
+    const needReencode = el.modeReencode.checked || (el.enableLogoCheckbox && el.enableLogoCheckbox.checked);
+    el.reencodeOptions.classList.toggle("hidden", !needReencode);
+    el.keyframeNotice.classList.toggle("hidden", needReencode);
+  }
+
+  function updateLogoUI() {
+    if (!el.enableLogoCheckbox) return;
+
+    el.enableLogoCheckbox.checked = state.logo.enabled;
+    el.logoSettingsBox.classList.toggle("hidden", !state.logo.enabled);
+
+    el.logoOpacityInput.value = String(state.logo.opacity);
+    el.logoOpacityValue.textContent = `${state.logo.opacity}%`;
+    el.logoSizeInput.value = String(state.logo.sizePct);
+    el.logoSizeValue.textContent = `${state.logo.sizePct}%`;
+    el.logoMarginInput.value = String(state.logo.marginPct);
+    el.logoMarginValue.textContent = `${state.logo.marginPct}%`;
+
+    if (state.logo.dataUrl) {
+      el.logoThumbPreview.src = state.logo.dataUrl;
+      el.logoThumbPreview.classList.remove("hidden");
+      el.logoThumbPlaceholder.classList.add("hidden");
+      el.removeLogoBtn.classList.remove("hidden");
+    } else {
+      el.logoThumbPreview.removeAttribute("src");
+      el.logoThumbPreview.classList.add("hidden");
+      el.logoThumbPlaceholder.classList.remove("hidden");
+      el.removeLogoBtn.classList.add("hidden");
+    }
+
+    updateLogoPreviewOnVideo();
+    updateModeVisibility();
+  }
+
+  function updateLogoPreviewOnVideo() {
+    if (!el.logoOverlayPreview) return;
+
+    if (!state.logo.enabled || !state.logo.dataUrl || !state.sourceFile) {
+      el.logoOverlayPreview.classList.add("hidden");
+      return;
+    }
+
+    const { width: videoW, height: videoH } = getVideoDimensions();
+    const aspect = videoW > 0 && videoH > 0 ? videoW / videoH : 16 / 9;
+    const topPct = state.logo.marginPct * aspect;
+
+    el.logoOverlayPreview.src = state.logo.dataUrl;
+    el.logoOverlayPreview.style.opacity = String(state.logo.opacity / 100);
+    el.logoOverlayPreview.style.width = `${state.logo.sizePct}%`;
+    el.logoOverlayPreview.style.left = `${state.logo.marginPct}%`;
+    el.logoOverlayPreview.style.top = `${topPct.toFixed(2)}%`;
+    el.logoOverlayPreview.classList.remove("hidden");
+  }
+
+  function handleLogoFileSelected(file) {
+    if (!file || !file.type.startsWith("image/")) {
+      showToast("Vui lòng chọn đúng file ảnh logo (ưu tiên PNG nền trong suốt).", "error");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const rawUrl = String(reader.result || "");
+        const img = await loadImage(rawUrl);
+
+        // Giữ nguyên nền trong suốt PNG, giới hạn cạnh tối đa 1024px cho gọn bộ nhớ
+        const maxSide = 1024;
+        let w = img.naturalWidth || 400;
+        let h = img.naturalHeight || 400;
+        if (w > maxSide || h > maxSide) {
+          const ratio = Math.min(maxSide / w, maxSide / h);
+          w = Math.round(w * ratio);
+          h = Math.round(h * ratio);
+        }
+
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        ctx.clearRect(0, 0, w, h);
+        ctx.drawImage(img, 0, 0, w, h);
+
+        state.logo.dataUrl = canvas.toDataURL("image/png");
+        state.logo.name = file.name;
+        state.logo.enabled = true;
+        saveLogoPrefs();
+        updateLogoUI();
+        showToast("Đã thêm logo mờ vào góc trên bên trái!", "success");
+      } catch (err) {
+        showToast(err.message || "Không thể đọc ảnh logo.", "error");
+      }
+    };
+    reader.readAsDataURL(file);
+  }
+
+  // Tạo file PNG đúng kích thước & độ mờ theo video thực tế để nạp vào FFmpeg
+  async function buildLogoPayloadForFFmpeg() {
+    if (!state.logo.enabled || !state.logo.dataUrl) return null;
+
+    const { width: videoW, height: videoH } = getVideoDimensions();
+    const img = await loadImage(state.logo.dataUrl);
+
+    let finalW = Math.max(16, Math.round(videoW * (state.logo.sizePct / 100)));
+    const imgRatio = (img.naturalHeight || 1) / (img.naturalWidth || 1);
+    let finalH = Math.max(16, Math.round(finalW * imgRatio));
+
+    const maxH = Math.round(videoH * 0.55);
+    if (finalH > maxH) {
+      const scale = maxH / finalH;
+      finalW = Math.max(16, Math.round(finalW * scale));
+      finalH = Math.max(16, Math.round(finalH * scale));
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = finalW;
+    canvas.height = finalH;
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, finalW, finalH);
+    ctx.globalAlpha = Math.max(0.05, Math.min(1, state.logo.opacity / 100));
+    ctx.drawImage(img, 0, 0, finalW, finalH);
+
+    const pngBlob = await new Promise((resolve, reject) => {
+      canvas.toBlob(
+        (b) => (b ? resolve(b) : reject(new Error("Không thể tạo ảnh logo PNG cho FFmpeg."))),
+        "image/png"
+      );
+    });
+
+    const buffer = await pngBlob.arrayBuffer();
+    const marginPx = Math.max(0, Math.round(videoW * (state.logo.marginPct / 100)));
+
+    return {
+      buffer,
+      marginX: marginPx,
+      marginY: marginPx
+    };
+  }
+
   /* ===================== QUẢN LÝ WEB WORKER FFMPEG ===================== */
 
   function ensureWorker() {
@@ -237,12 +467,12 @@
     state.workerMountedFile = null;
   }
 
-  function callWorker(type, payload = {}) {
+  function callWorker(type, payload = {}, transferables = []) {
     return new Promise((resolve, reject) => {
       const worker = ensureWorker();
       const id = ++state.requestSeq;
       state.pendingRequests.set(id, { resolve, reject });
-      worker.postMessage({ id, type, payload });
+      worker.postMessage({ id, type, payload }, transferables);
     });
   }
 
@@ -571,7 +801,7 @@
 
     if (file.size > 1.8 * 1024 * 1024 * 1024) {
       showAlert(
-        "Video có dung lượng lớn (trên 1.8 GB). Hệ thống dùng WORKERFS để giảm tối đa RAM, hãy đóng bớt tab khác và giữ chế độ Stream Copy (-c copy) để xử lý ổn định nhất.",
+        "Video có dung lượng lớn (trên 1.8 GB). Hệ thống dùng WORKERFS để giảm tối đa RAM, hãy đóng bớt tab khác để xử lý ổn định nhất.",
         "warning"
       );
     }
@@ -582,6 +812,7 @@
       state.resolution = meta.resolution || "Không xác định";
       el.fileDurationDisplay.textContent = formatDuration(state.duration);
       el.fileResolutionDisplay.textContent = state.resolution;
+      updateLogoPreviewOnVideo();
       recalculateSegments(true);
       showToast(`Đã nạp video (${formatDuration(state.duration)}) — dự kiến ${state.segments.length} tập.`, "success");
     } catch (_) {
@@ -604,6 +835,7 @@
         el.fileDurationDisplay.textContent = formatDuration(state.duration);
         el.fileResolutionDisplay.textContent = state.resolution;
         setFFmpegBadge("ready", "FFmpeg.wasm đã sẵn sàng");
+        updateLogoPreviewOnVideo();
         recalculateSegments(true);
         showToast(`FFmpeg đã đọc xong video (${formatDuration(state.duration)}).`, "success");
       } catch (err) {
@@ -619,7 +851,13 @@
   async function startCutting() {
     if (!state.sourceFile || state.segments.length === 0 || state.isProcessing) return;
 
-    const cutMode = el.modeReencode.checked ? "reencode" : "copy";
+    if (state.logo.enabled && !state.logo.dataUrl) {
+      showToast("Bạn đang bật chèn logo nhưng chưa chọn ảnh logo. Hãy chọn ảnh hoặc bỏ tích chèn logo.", "warn");
+      return;
+    }
+
+    const useLogo = Boolean(state.logo.enabled && state.logo.dataUrl);
+    const cutMode = useLogo || el.modeReencode.checked ? "reencode" : "copy";
     const crf = el.crfSelect.value;
     const preset = el.presetSelect.value;
 
@@ -663,6 +901,21 @@
         setFFmpegBadge("ready", `FFmpeg sẵn sàng (${mountRes.method})`);
       }
 
+      // Nạp hoặc gỡ file logo mờ trên FFmpeg trước khi chạy vòng lặp cắt
+      let logoConfig = null;
+      if (useLogo) {
+        el.currentEpText.textContent = "Đang chuẩn bị ảnh logo mờ cho FFmpeg...";
+        const renderedLogo = await buildLogoPayloadForFFmpeg();
+        await callWorker("setLogo", { buffer: renderedLogo.buffer }, [renderedLogo.buffer]);
+        logoConfig = {
+          enabled: true,
+          marginX: renderedLogo.marginX,
+          marginY: renderedLogo.marginY
+        };
+      } else {
+        await callWorker("setLogo", { buffer: null });
+      }
+
       const total = state.segments.length;
 
       for (let i = 0; i < total; i++) {
@@ -672,8 +925,10 @@
         seg.status = "processing";
         renderEpisodeList();
 
-        el.progressStatusText.textContent = `Đang xử lý tập ${i + 1}/${total}...`;
-        el.currentEpText.textContent = `Đang cắt: ${seg.title}.mp4 (${formatDuration(seg.startSec)} – ${formatDuration(seg.endSec)})`;
+        el.progressStatusText.textContent = useLogo
+          ? `Đang cắt & gắn logo mờ tập ${i + 1}/${total}...`
+          : `Đang xử lý tập ${i + 1}/${total}...`;
+        el.currentEpText.textContent = `Đang xuất: ${seg.title}.mp4 (${formatDuration(seg.startSec)} – ${formatDuration(seg.endSec)})`;
         el.currentEpPercentText.textContent = "0%";
         el.currentEpProgressBar.style.width = "0%";
 
@@ -685,7 +940,8 @@
             isLastSegment,
             mode: cutMode,
             crf,
-            preset
+            preset,
+            logo: logoConfig
           });
 
           if (state.isCancelling) break;
@@ -743,7 +999,12 @@
             "warning"
           );
         } else {
-          showAlert(`Hoàn tất xuất ${successCount} tập MP4 thành công!`, "success");
+          showAlert(
+            useLogo
+              ? `Hoàn tất xuất ${successCount} tập MP4 đã gắn logo mờ góc trên trái!`
+              : `Hoàn tất xuất ${successCount} tập MP4 thành công!`,
+            "success"
+          );
         }
       } else {
         el.progressStatusText.textContent = `Hoàn tất với ${successCount}/${state.segments.length} tập thành công.`;
@@ -911,6 +1172,7 @@
     el.totalEpisodesCount.textContent = "0 tập";
     showAlert("");
 
+    updateLogoPreviewOnVideo();
     renderEpisodeList();
     updateActionButtons();
     updateRamDisplay();
@@ -955,6 +1217,8 @@
       if (file) handleFileSelected(file);
     });
 
+    el.sourceVideoPlayer.addEventListener("loadedmetadata", updateLogoPreviewOnVideo);
+
     el.changeVideoBtn.addEventListener("click", () => el.videoInput.click());
     el.clearMemoryBtn.addEventListener("click", clearAllAndFreeMemory);
 
@@ -977,13 +1241,50 @@
       });
     });
 
-    const onModeChange = () => {
-      const isReencode = el.modeReencode.checked;
-      el.reencodeOptions.classList.toggle("hidden", !isReencode);
-      el.keyframeNotice.classList.toggle("hidden", isReencode);
-    };
-    el.modeCopy.addEventListener("change", onModeChange);
-    el.modeReencode.addEventListener("change", onModeChange);
+    el.modeCopy.addEventListener("change", updateModeVisibility);
+    el.modeReencode.addEventListener("change", updateModeVisibility);
+
+    // Sự kiện Logo mờ góc trên trái
+    if (el.enableLogoCheckbox) {
+      el.enableLogoCheckbox.addEventListener("change", () => {
+        state.logo.enabled = el.enableLogoCheckbox.checked;
+        saveLogoPrefs();
+        updateLogoUI();
+      });
+
+      el.selectLogoBtn.addEventListener("click", () => el.logoFileInput.click());
+      el.logoFileInput.addEventListener("change", (e) => {
+        const file = e.target.files?.[0];
+        if (file) handleLogoFileSelected(file);
+        el.logoFileInput.value = "";
+      });
+
+      el.removeLogoBtn.addEventListener("click", () => {
+        state.logo.dataUrl = "";
+        state.logo.name = "";
+        saveLogoPrefs();
+        updateLogoUI();
+        showToast("Đã gỡ ảnh logo.", "info");
+      });
+
+      el.logoOpacityInput.addEventListener("input", () => {
+        state.logo.opacity = Number(el.logoOpacityInput.value) || 45;
+        saveLogoPrefs();
+        updateLogoUI();
+      });
+
+      el.logoSizeInput.addEventListener("input", () => {
+        state.logo.sizePct = Number(el.logoSizeInput.value) || 14;
+        saveLogoPrefs();
+        updateLogoUI();
+      });
+
+      el.logoMarginInput.addEventListener("input", () => {
+        state.logo.marginPct = Number(el.logoMarginInput.value) || 0;
+        saveLogoPrefs();
+        updateLogoUI();
+      });
+    }
 
     [el.videoTitleInput, el.channelNameInput, el.episodePrefixInput, el.startEpisodeInput].forEach((input) => {
       input.addEventListener("input", () => updateEpisodeNamesOnly(false));
@@ -1052,7 +1353,9 @@
     showAlert
   };
 
+  restoreLogoPrefs();
   bindEvents();
+  updateLogoUI();
   updateNamingSample();
   updateActionButtons();
 })();
