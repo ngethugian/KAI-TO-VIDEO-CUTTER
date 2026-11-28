@@ -1,13 +1,16 @@
-/* KAI TỒ VIDEO CUTTER — FFmpeg.wasm Worker (Tương thích 100% GitHub Pages) */
+/* KAI TỒ VIDEO CUTTER — FFmpeg.wasm Worker (Hỗ trợ chèn Logo mờ góc trên trái) */
 
 const CORE_CDNS = [
   "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd",
   "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd"
 ];
 
+const LOGO_FS_PATH = "/watermark_logo.png";
+
 let ffmpeg = null;
 let mountedInputPath = null;
 let isWorkerFSMounted = false;
+let hasMountedLogo = false;
 let currentCutDuration = 0;
 let lastEncodedTimeSec = 0;
 let logBuffer = [];
@@ -157,6 +160,14 @@ async function initFFmpeg() {
   );
 }
 
+function cleanupLogoFile() {
+  if (!ffmpeg) return;
+  try {
+    ffmpeg.FS.unlink(LOGO_FS_PATH);
+  } catch (_) {}
+  hasMountedLogo = false;
+}
+
 function cleanupInputMount() {
   if (!ffmpeg) return;
   try {
@@ -168,6 +179,7 @@ function cleanupInputMount() {
     }
   } catch (_) {}
   mountedInputPath = null;
+  cleanupLogoFile();
 }
 
 async function mountInputFile(file, ext) {
@@ -207,6 +219,16 @@ async function mountInputFile(file, ext) {
   ffmpeg.FS.writeFile(mountedInputPath, new Uint8Array(buf));
   isWorkerFSMounted = false;
   return { method: "MEMFS", inputPath: mountedInputPath };
+}
+
+async function setLogoFile(buffer) {
+  await initFFmpeg();
+  cleanupLogoFile();
+  if (buffer && buffer.byteLength > 0) {
+    ffmpeg.FS.writeFile(LOGO_FS_PATH, new Uint8Array(buffer));
+    hasMountedLogo = true;
+  }
+  return { hasMountedLogo };
 }
 
 function execFFmpeg(args) {
@@ -250,7 +272,7 @@ async function probeMountedVideo() {
   return { duration, resolution };
 }
 
-async function cutSegment({ startSec, durationSec, isLastSegment, mode, crf, preset }) {
+async function cutSegment({ startSec, durationSec, isLastSegment, mode, crf, preset, logo }) {
   if (!mountedInputPath) {
     throw new Error("Chưa nạp file video nguồn vào FFmpeg.");
   }
@@ -264,19 +286,36 @@ async function cutSegment({ startSec, durationSec, isLastSegment, mode, crf, pre
   currentCutDuration = Math.max(0.1, durationSec);
   lastEncodedTimeSec = 0;
 
+  const useLogo = Boolean(logo && logo.enabled && hasMountedLogo);
+  const effectiveMode = useLogo ? "reencode" : mode;
+
   const args = ["-hide_banner", "-ss", formatFFmpegTime(startSec), "-i", mountedInputPath];
 
-  // Với tập cuối cùng, bỏ -t để cắt trọn vẹn tới hết khung hình cuối cùng, không bỏ sót nội dung
+  if (useLogo) {
+    args.push("-i", LOGO_FS_PATH);
+  }
+
+  // Với tập cuối cùng, bỏ -t để cắt trọn vẹn tới hết khung hình cuối cùng
   if (!isLastSegment) {
     args.push("-t", formatFFmpegTime(durationSec));
   }
 
-  args.push("-map", "0:v:0", "-map", "0:a?");
+  if (useLogo) {
+    const mx = Math.max(0, Math.round(Number(logo.marginX) || 20));
+    const my = Math.max(0, Math.round(Number(logo.marginY) || 20));
+    args.push(
+      "-filter_complex", `[0:v:0][1:v:0]overlay=x=${mx}:y=${my}:eof_action=repeat[vout]`,
+      "-map", "[vout]",
+      "-map", "0:a?"
+    );
+  } else {
+    args.push("-map", "0:v:0", "-map", "0:a?");
+  }
 
-  if (mode === "reencode") {
+  if (effectiveMode === "reencode") {
     args.push(
       "-c:v", "libx264",
-      "-preset", preset || "veryfast",
+      "-preset", preset || "ultrafast",
       "-crf", String(crf || 18),
       "-pix_fmt", "yuv420p",
       "-c:a", "aac",
@@ -295,7 +334,7 @@ async function cutSegment({ startSec, durationSec, isLastSegment, mode, crf, pre
 
   if (exitCode !== 0) {
     const tail = logBuffer.slice(-8).join(" | ");
-    if (mode === "copy") {
+    if (effectiveMode === "copy") {
       throw new Error(
         `FFmpeg không thể đóng gói trực tiếp bằng Stream Copy (mã lỗi ${exitCode}). Video gốc có thể dùng codec không tương thích MP4 (như MKV/VP9/Opus). Hãy thử chuyển sang chế độ "Mã hóa lại chất lượng cao". Chi tiết: ${tail}`
       );
@@ -333,6 +372,9 @@ self.onmessage = async (event) => {
       self.postMessage({ id, type: "result", ok: true });
     } else if (type === "mount") {
       const info = await mountInputFile(payload.file, payload.ext);
+      self.postMessage({ id, type: "result", ok: true, data: info });
+    } else if (type === "setLogo") {
+      const info = await setLogoFile(payload?.buffer || null);
       self.postMessage({ id, type: "result", ok: true, data: info });
     } else if (type === "probe") {
       const info = await probeMountedVideo();
