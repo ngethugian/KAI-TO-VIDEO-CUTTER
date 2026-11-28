@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>KAI TỒ VIDEO CUTTER — Cắt & Chia Tập Video Chuyên Nghiệp</title>
-  <meta name="description" content="Công cụ cắt, chia video dài thành nhiều tập bằng FFmpeg.wasm và tự động đăng Fanpage Facebook." />
+  <meta name="description" content="Công cụ cắt, chia video dài thành nhiều tập bằng FFmpeg.wasm, chèn logo mờ và tự động đăng Fanpage Facebook." />
   <link rel="stylesheet" href="style.css" />
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js" defer></script>
   <script src="script.js" defer></script>
@@ -72,10 +72,13 @@
         <button type="button" id="selectFileBtn" class="btn btn-primary">Chọn video từ máy</button>
       </div>
 
-      <!-- Thông tin & Xem trước video nguồn -->
+      <!-- Thông tin & Xem trước video nguồn (có lớp xem trước Logo mờ góc trên trái) -->
       <div id="videoInfoSection" class="video-workspace hidden">
         <div class="preview-box">
-          <video id="sourceVideoPlayer" controls playsinline preload="metadata"></video>
+          <div class="video-stage" id="videoPreviewStage">
+            <video id="sourceVideoPlayer" controls playsinline preload="metadata"></video>
+            <img id="logoOverlayPreview" class="logo-overlay-preview hidden" alt="Xem trước logo mờ" />
+          </div>
           <p id="previewFallbackNote" class="muted-note hidden">
             Trình duyệt không giải mã trực tiếp định dạng này để xem trước, nhưng FFmpeg.wasm vẫn đọc và cắt bình thường.
           </p>
@@ -109,20 +112,20 @@
       </div>
     </section>
 
-    <!-- Bước 2: Cấu hình chia tập & đặt tên -->
+    <!-- Bước 2: Cấu hình chia tập, Logo mờ & đặt tên -->
     <section class="card" id="configSection">
       <div class="card-header">
         <div class="step-badge">2</div>
         <div>
-          <h2>Cấu hình chia tập & Đặt tên tự động</h2>
-          <p class="card-desc">Thiết lập thời lượng mỗi tập, chế độ giữ chất lượng và quy tắc đặt tên file MP4.</p>
+          <h2>Cấu hình chia tập, Chèn Logo mờ & Đặt tên tự động</h2>
+          <p class="card-desc">Thiết lập thời lượng mỗi tập, chế độ giữ chất lượng, logo mờ góc trên trái và quy tắc đặt tên file MP4.</p>
         </div>
       </div>
 
       <div class="config-grid">
-        <!-- Cột trái: Thời lượng & Chất lượng -->
+        <!-- Cột trái: Thời lượng, Chất lượng & Logo mờ -->
         <div class="config-block">
-          <h3 class="block-title">Thời lượng & Chế độ cắt</h3>
+          <h3 class="block-title">Thời lượng, Chế độ cắt & Logo mờ</h3>
 
           <div class="form-row-2">
             <div class="form-group">
@@ -168,6 +171,62 @@
             </label>
           </div>
 
+          <!-- Khu vực Chèn Logo mờ góc trên trái -->
+          <div class="logo-card">
+            <label class="checkbox-row logo-toggle-row">
+              <input type="checkbox" id="enableLogoCheckbox" />
+              <span><strong>Chèn Logo mờ vào góc trên bên trái</strong> (nhìn xuyên thấy cảnh phía sau)</span>
+            </label>
+
+            <div id="logoSettingsBox" class="logo-settings hidden">
+              <input type="file" id="logoFileInput" accept="image/png,image/jpeg,image/webp,image/*" hidden />
+
+              <div class="logo-picker-row">
+                <div class="logo-thumb-wrap">
+                  <img id="logoThumbPreview" class="logo-thumb-img hidden" alt="Logo đã chọn" />
+                  <span id="logoThumbPlaceholder" class="fb-thumb-placeholder">Chưa có logo</span>
+                </div>
+                <div class="fb-thumb-controls">
+                  <p class="fb-thumb-note">Ưu tiên ảnh <strong>.PNG đã xóa nền</strong>. Kéo các thanh bên dưới để xem thử ngay trên video ở Bước 1.</p>
+                  <div class="fb-thumb-btns">
+                    <button type="button" id="selectLogoBtn" class="btn btn-secondary btn-sm">Chọn ảnh logo</button>
+                    <button type="button" id="removeLogoBtn" class="btn btn-danger-ghost btn-sm hidden">Xóa logo</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="logo-sliders">
+                <div class="slider-group">
+                  <div class="slider-head">
+                    <label for="logoOpacityInput">Độ rõ / mờ của logo (nhỏ hơn = càng mờ)</label>
+                    <strong id="logoOpacityValue">45%</strong>
+                  </div>
+                  <input type="range" id="logoOpacityInput" min="10" max="100" step="5" value="45" />
+                </div>
+
+                <div class="slider-group">
+                  <div class="slider-head">
+                    <label for="logoSizeInput">Kích thước logo (% chiều ngang video)</label>
+                    <strong id="logoSizeValue">14%</strong>
+                  </div>
+                  <input type="range" id="logoSizeInput" min="5" max="35" step="1" value="14" />
+                </div>
+
+                <div class="slider-group">
+                  <div class="slider-head">
+                    <label for="logoMarginInput">Khoảng cách từ góc trên trái</label>
+                    <strong id="logoMarginValue">2.5%</strong>
+                  </div>
+                  <input type="range" id="logoMarginInput" min="0" max="10" step="0.5" value="2.5" />
+                </div>
+              </div>
+
+              <p class="logo-speed-note">
+                Lưu ý: Khi bật chèn logo, hệ thống sẽ tự động mã hóa lại video để in logo vào từng khung hình (nên chọn tốc độ <strong>Ultrafast</strong> bên dưới để xuất nhanh nhất mà vẫn nét).
+              </p>
+            </div>
+          </div>
+
           <div id="keyframeNotice" class="info-callout">
             <strong>Lưu ý Stream Copy:</strong> Chế độ <code>-c copy</code> chỉ cắt tại khung hình khóa (keyframe) gần nhất nên thời lượng thực tế có thể xê dịch 1–5 giây. Hệ thống sẽ tự kiểm tra và cảnh báo ngay trên từng tập nếu phát hiện độ lệch.
           </div>
@@ -185,8 +244,8 @@
               <div class="form-group">
                 <label for="presetSelect">Tốc độ mã hóa</label>
                 <select id="presetSelect">
-                  <option value="ultrafast">Ultrafast — Nhanh nhất</option>
-                  <option value="veryfast" selected>Veryfast — Cân bằng</option>
+                  <option value="ultrafast" selected>Ultrafast — Nhanh nhất (khuyên dùng khi gắn logo)</option>
+                  <option value="veryfast">Veryfast — Cân bằng</option>
                   <option value="fast">Fast — Nén đẹp hơn (lâu hơn)</option>
                 </select>
               </div>
@@ -473,7 +532,7 @@
         <div class="step-badge">?</div>
         <div>
           <h2>Hướng dẫn sử dụng nhanh</h2>
-          <p class="card-desc">Quy trình 4 bước để chia video dài và đăng lên kênh KAI TỒ REVIEW giữ nguyên độ nét gốc.</p>
+          <p class="card-desc">Quy trình 4 bước để chia video dài, gắn logo mờ và đăng lên kênh KAI TỒ REVIEW.</p>
         </div>
       </div>
 
@@ -483,12 +542,12 @@
           <p>Nhấn chọn hoặc kéo thả file MP4/MOV/MKV. Hệ thống đọc trực tiếp từ ổ cứng, không cần cài phần mềm.</p>
         </div>
         <div class="guide-item">
-          <h4>2. Đặt thời lượng & Tiêu đề</h4>
-          <p>Nhập thời lượng mỗi tập (mặc định 12 phút), tiêu đề phim và số tập bắt đầu. Phần dư cuối video được gom thành tập cuối.</p>
+          <h4>2. Đặt thời lượng & Logo mờ</h4>
+          <p>Nhập thời lượng mỗi tập, tiêu đề phim và bật mục Chèn Logo mờ nếu muốn gắn logo kênh vào góc trên trái.</p>
         </div>
         <div class="guide-item">
           <h4>3. Bấm chia & Tải về</h4>
-          <p>Mặc định dùng <code>-c copy</code> giữ 100% chất lượng gốc. Sau khi cắt xong có thể xem trước, tải từng tập MP4 hoặc tải file ZIP.</p>
+          <p>Tắt logo để dùng <code>-c copy</code> siêu nhanh giữ 100% chất lượng gốc; bật logo sẽ tự động xuất MP4 có logo mờ sắc nét.</p>
         </div>
         <div class="guide-item">
           <h4>4. Gắn ảnh bìa & Đăng Facebook</h4>
